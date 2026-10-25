@@ -1,0 +1,19 @@
+# Pinned-ish runtime deps for the container. Kept in sync with pyproject.toml; the Dockerfile
+# installs this file instead of the project so the layer is cached across code changes.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pydantic-settings>=2.3
+SQLAlchemy>=2.0.30
+aiosqlite>=0.20
+greenlet>=3.0
+PyYAML>=6.0
+httpx>=0.27
+prometheus-client>=0.20
+python-multipart>=0.0.9
+
+# Optional - uncomment what the deployment actually uses.
+# asyncpg>=0.29            # postgres
+# presidio-analyzer>=2.2   # stronger multilingual PII recall in Stage 2
+# transformers>=4.44       # Stage 1 classifier (torch pulls ~2 GB - see Dockerfile notes)
+# torch>=2.3

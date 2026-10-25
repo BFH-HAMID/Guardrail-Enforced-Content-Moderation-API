@@ -1,0 +1,84 @@
+# Local/staging stack for the moderation API.
+#
+#   cd deploy && cp .env.example .env && $EDITOR .env && docker compose up -d --build
+#
+# Three services: Postgres (audit store), the API, and an optional Streamlit reviewer console.
+# nginx is left as an example override because the TLS/cert story is site-specific.
+name: guardrail
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: guardrail
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: guardrail
+    volumes:
+      - guardrail-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guardrail -d guardrail"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: guardrail-api:${GUARD_IMAGE_TAG:-local}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GUARD_ENVIRONMENT: ${GUARD_ENVIRONMENT:-staging}
+      GUARD_DATABASE_URL: postgresql+asyncpg://guardrail:${POSTGRES_PASSWORD}@db:5432/guardrail
+      GUARD_BOOTSTRAP_API_KEYS: ${GUARD_BOOTSTRAP_API_KEYS:?set GUARD_BOOTSTRAP_API_KEYS in deploy/.env}
+      GUARD_API_KEY_PEPPER: ${GUARD_API_KEY_PEPPER:?set GUARD_API_KEY_PEPPER too - it salts the key hashes}
+      GUARD_LLM_FALLBACK_ORDER: ${GUARD_LLM_FALLBACK_ORDER:-local>ollama}
+      GUARD_GEMINI_API_KEY: ${GUARD_GEMINI_API_KEY:-}
+      GUARD_GEMINI_BASE_URL: ${GUARD_GEMINI_BASE_URL:-}
+      GUARD_DEFAULT_MODE: ${GUARD_DEFAULT_MODE:-balanced}
+      GUARD_STAGE3_MODE: ${GUARD_STAGE3_MODE:-passthrough}
+      GUARD_RETENTION_DAYS: ${GUARD_RETENTION_DAYS:-30}
+      # Raw user text is sensitive: the audit row keeps a hash + preview unless these are set.
+      GUARD_LOG_REQUEST_BODIES: ${GUARD_LOG_REQUEST_BODIES:-false}
+      GUARD_STORE_RAW_INPUT: ${GUARD_STORE_RAW_INPUT:-true}
+      GUARD_ENCRYPT_STORED_TEXT: ${GUARD_ENCRYPT_STORED_TEXT:-false}
+      GUARD_RATE_LIMIT_REQUESTS_PER_MINUTE: ${GUARD_RATE_LIMIT_REQUESTS_PER_MINUTE:-120}
+      GUARD_CORS_ORIGINS: ${GUARD_CORS_ORIGINS:-}
+    ports:
+      - "${GUARD_PORT:-8000}:8000"
+    restart: unless-stopped
+    # `depends_on: service_healthy` plus the app's own DB retry mean a slow Postgres never
+    # leaves the API serving *unmoderated* traffic: startup fails closed instead.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+
+  # Optional: the operator UI. Same image, different entrypoint - no second build.
+  ui:
+    image: guardrail-api:${GUARD_IMAGE_TAG:-local}
+    depends_on:
+      - api
+    profiles: ["ui"]
+    command:
+      - streamlit
+      - run
+      - ui/streamlit_app.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+      - --server.headless=true
+      - --browser.gatherUsageStats=false
+    environment:
+      GUARD_API_BASE: http://api:8000
+      GUARD_ENVIRONMENT: ${GUARD_ENVIRONMENT:-staging}
+    ports:
+      - "${GUARD_UI_PORT:-8501}:8501"
+    restart: unless-stopped
+
+volumes:
+  guardrail-pg:

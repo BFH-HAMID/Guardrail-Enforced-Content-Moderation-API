@@ -1,0 +1,1121 @@
+# =============================================================================
+# Guardrail-Enforced Content Moderation API - policy bundle (v1)
+# =============================================================================
+# This file is the single source of truth for *what* we block, rewrite or mask.
+# It is validated by app/pipeline/policy.py at startup and hot-reloaded when the
+# mtime changes, so an operator can tune the service with no code change/redeploy.
+#
+# Policy anatomy
+#   id            stable identifier, appears in API responses and logs
+#   stage         stage1 (toxicity + injection) | stage2 (content policy) |
+#                 stage3_output (check the generated answer before it leaves)
+#   category      label used in responses, metrics and Grafana panels
+#   severity      info|low|medium|high|critical  -> contributes 0.2..0.95 score
+#   action        block | rewrite | mask | allow | flag | disclaimer
+#   min_score     base gate; scaled per mode (strict x0.8, balanced x1.0, lenient x1.25)
+#   regex/lexicon/classifier/llm_categories/obfuscation/payloads/script/entities
+#                 detector clauses - ANY clause firing is enough unless
+#                 require_all_clauses: true
+#   exceptions    second-pass regexes that DOWNGRADE a hit (journalism, fiction,
+#                 self-help, quoting). This is what keeps the false-positive rate low.
+#   applies_to_modes  optional restriction
+# =============================================================================
+
+#  * Write non-ASCII (Bengali) text literally, never as \uXXXX escapes: YAML does not expand
+#    escapes inside single-quoted scalars, so "কাল" in a pattern would match the six
+#    characters of the escape text and nothing else.
+version: "1.0.0"
+name: "guardrail-default"
+
+# -----------------------------------------------------------------------------
+# Per-mode Stage-1 decision thresholds (small-LLM judge + classifier fusion).
+# -----------------------------------------------------------------------------
+modes:
+  strict:
+    toxicity_block: 0.50
+    injection_block: 0.45
+    jailbreak_block: 0.45
+    sensitive_topic_flag: 0.45
+    stage1_consensus: any
+    llm_weight: 0.70
+    classifier_weight: 0.30
+  balanced:
+    toxicity_block: 0.72
+    injection_block: 0.60
+    jailbreak_block: 0.60
+    sensitive_topic_flag: 0.60
+    stage1_consensus: any
+    llm_weight: 0.60
+    classifier_weight: 0.40
+  lenient:
+    toxicity_block: 0.86
+    injection_block: 0.78
+    jailbreak_block: 0.78
+    sensitive_topic_flag: 0.80
+    stage1_consensus: both
+    llm_weight: 0.50
+    classifier_weight: 0.50
+
+policies:
+  # ===========================================================================
+  # STAGE 1 - toxicity
+  # ===========================================================================
+  - id: hate_speech
+    name: Hate speech and dehumanising slurs
+    stage: stage1
+    category: hate
+    severity: critical
+    action: block
+    min_score: 0.55
+    description: >-
+      Slurs and dehumanising language aimed at protected characteristics.
+      Extend the lexicon from your own labelled corpus; the exceptions list is what
+      stops news quotes and academic discussion from being blocked.
+    lexicon:
+      terms:
+        en:
+          # canonical slurs - intentionally explicit: a hate-speech filter that does
+          # not contain the words it filters is not a filter. Keep this list owned by
+          # your policy team and extend it per deployment.
+          - nigger
+          - nigga
+          - faggot
+          - f@ggot
+          - tranny
+          - kike
+          - cunt
+          - retarted
+          - gook
+          - wetback
+          - coon
+          - zip code
+          - half-breed
+          - gypsy
+          - chink
+          - spic
+        bn:
+          - কালো ধোঁয়ার বাচ্চা
+          - হারামজাদা
+          - শালা
+          - গুঁটা
+          - মাগি
+          - বেশ্যা
+          - হিজড়া
+      boost: 0.55
+      min_matches: 1
+    regex:
+      patterns:
+        - "\\b(?:send|kick|ship|throw|push|force|drive)\\s+them\\s+back\\b"
+        - "\\bhate\\b[\\s\\S]{0,20}\\ball\\b[\\s\\S]{0,20}\\b(?:immigrants?|refugees?|muslims?|hindus?|christians?|jews?|blacks?|whites?|gays?|lesbians?|trans\\w*|romani|syrians?| Rohingyas?|they)\\b"
+        - "\\b(?:they|them|those)\\b[\\s\\S]{0,16}\\b(?:should|must)\\b[\\s\\S]{0,20}\\b(?:be )?(?:sent back|deported|expelled|eradicated|cleansed|not exist)\\b"
+        - "\\b(?:filthy |dirty |foul |subhuman |vermin |animals?|dogs?|pigs?|rats?|cockroaches?|parasites?|disease|cancer)\\b[\\s\\S]{0,30}\\b(?:that|who|which)\\s+(?:must|should|need[s]? to)\\s+be\\s+(?:cleansed|removed|purged|deported|eliminated|erased|killed|put down|sent back|wiped out)\\b"
+        - "\\b(?:every ?one of|all of) (?:that|this|the) [\\w'-]+ (?:should|must|deserve to) be (?:beaten|killed|burned|burnt|punished|removed|cleansed|hurt|taught a lesson)\\b"
+        - "\\b[\\w'-]+ (?:should|must) be (?:beaten|killed|burned|cleansed|purged|sterilised|sterilized) until they learn their place\\b"
+        - '(?:kill|death to|execute|purge|cleanse|exterminat\w*|gas\w* ?them)\s+(?:all\s+)?(?:the\s+)?[a-zঀ-৿ ]{0,24}?(?:niggers?|faggots?|muslims?|jews?|hindus?|refugees?|migrants?|transgender|trans people|gays?|blacks?|whites?|disabled people)'
+        - '(?:they|these|those)\s+(?:should\s+be\s+)?(?:killed|raped|burned|tortured|slaved|enslaved)'
+        - '(?:নবনি|নি)?(?:হিন্দু|মুসলমান|গে|ট্রান্স|আদিবাসী)[\s\S]{0,12}(?:মেরে\s+)?ফেলি?|মারতে\s+হবে'
+        - '\b(?:these|those|they|them|people like (?:them|us)|this (?:race|group|community)|your (?:community|people|race)|all of (?:them|your))\b[\s\S]{0,48}\b(?:should|deserve(?:s)? to|must be|need to be|have to be)\b[\s\S]{0,32}\b(?:wiped(?: ?out)?|killed|executed|deleted|cleansed|purged|exterminated|gassed|sterilised|sterilized|deported|sent back|locked away|burned|burnt|drown\w*|beaten|enslaved|slaved|removed|gone)\b'
+        - '\b(?:subhuman|vermin|rats?|cockroach\w*|lice|diseases?|plagues?|parasites?|animals?|beasts?|filth|garbage|dirt)\b[\s\S]{0,44}\b(?:should|deserve|cleanse|wipe|kill|remove|burn|purge|sterilis\w*|exterminat\w*|drive\s+out|send back|lock)\b'
+        - '\b(?:die of|carry) (?:the )?(?:disease|plague|virus) you (?:carry|spread)\b'
+        - '\b(?:\w+ing)?\s*(?:disabled|gay|trans|refugee|migrant|immigrant|minorit\w+|caste)\b[\s\S]{0,36}\b(?:should not be (?:allowed|born)|do not belong|should be (?:locked|kept|hidden|removed))\b'
+        - '(?:তাড়িয়ে দাও|বাইরে পাঠিয়ে দাও|দেশ থেকে বের করে দাও|মেরে ফেলা দরকার)'
+      boost: 0.5
+    exceptions:
+      - '\b(?:article|report|headline|quote[d]?|documentar|news|study|research|essay|definition|meaning of|history|in \d{4}|wrote|titled)\b'
+      - '\b(?:fiction|novel|character|dialogue|screenplay|short story)\b'
+      - '\b(?:how (?:do|can) (?:i|we) (?:report|counter|prevent|stop|address))\b'
+      - '\b(?:did not say|was not saying|do not want to offend)\b'
+
+  - id: harassment_bullying
+    description: >-
+      Sustained or targeted abuse of a person; mild insults are softened by harassment_softener instead of
+      refused.
+    name: Targeted harassment / bullying
+    stage: stage1
+    category: harassment
+    # medium, not high: a single "you idiot" should reach the Stage-2 softener rather
+    # than hard-blocking the whole request. Escalation to a block happens when the
+    # lexicon (kill yourself / deserve to die) or repeated insults fire instead.
+    severity: medium
+    action: block
+    min_score: 0.75
+    lexicon:
+      terms:
+        en:
+          - go kill yourself
+          - kill yourself
+          - end your life
+          - nobody loves you
+          - you should die
+          - you are worthless trash
+          - deserve to die
+          - ugly piece of trash
+        bn:
+          - মরে যাও
+          - আত্মহত্যা করো
+          - তুই অকাজে
+          - বেঁচে থাকার দরকার নাই
+      boost: 0.5
+    regex:
+      patterns:
+        - '(?:\b(?:you|ur|u)\b[^.!?]{0,30}\b(?:loser|idiot|ugly|worthless|stupid|trash|garbage|subhuman|freak)\b)'
+        - '(?:tell (?:my|her|his|their) (?:friend|ex|classmate|coworker))\s+\w+[\s\w]{0,20}(?:to )?(?:kill|hurt) themself'
+      boost: 0.4
+    exceptions:
+      - '\b(?:my friend|i)\s+(?:is|am)?\s*(?:depressed|struggling|feeling low|needs support)\b'
+      - '\b(?:how to (?:deal with|report|stop|help))\b'
+      - '\b(?:roast battle|comedy|stand-up|script for)\b'
+
+  - id: self_harm
+    name: Self-harm and suicide content
+    stage: stage1
+    category: self_harm
+    severity: critical
+    action: block
+    min_score: 0.55
+    description: >-
+      Requests for methods/encouragement are blocked outright; help-seeking is
+      allowed through by the exception list so a person in crisis is not silenced.
+    regex:
+      patterns:
+        - '(?:how (?:can|do|to) )?i (?:want to |would like to |gonna |plan to )?(?:kill myself|end it all|commit suicide|hang myself|overdose|cut myself|hurt myself badly)'
+        - '(?:painless|painless|most effective|guaranteed) (?:way to )?(?:die|kill myself|suicide|overdose)'
+        - '(?:suicide|self.?harm) (?:method|instructions|kit|pill count|how many (?:pills|tablets))'
+        - '(?:আত্মহত্যার|আত্মহত্যা করার) (?:পদ্ধতি|উপায়|নিয়ম)'
+        - '\bi (?:keep |constantly |often )?(?:thinking|fantasising|fantasizing) about (?:killing myself|ending it|ending my life|my (?:own )?death|not (?:being alive|existing)|suicide)\b'
+        - '\bi (?:\x27d|would) (?:rather )?be dead\b|\bi wish i (?:were|was|had never been) (?:dead|born)\b'
+        - '\b(?:no|not any) point (?:in |to )(?:being alive|living|staying alive)\b|\beveryone (?:would be|is) better off (?:if i (?:died|were dead)|without me)\b'
+        - '\bi (?:have|had) (?:a |the )?plan (?:to |for )(?:end it|die|my (?:own )?death|kill myself)\b'
+        - 'আমি (?:আর )?(?:বাঁচতে চাই না|জিও না|সব শেষ করে দিব|শেষ করে দিতে চাই)'
+      boost: 0.6
+    llm_categories:
+      categories: [self_harm, self-harm]
+      min_score: 0.5
+      boost: 0.5
+    exceptions:
+      - '\b(?:suicide prevention|helpline|hotline|need help|getting help|therapy|counsell?ing|worried about (?:my|a))\b'
+      - '\b(?:warning signs|signs (?:that|someone|of)|how (?:do|can) (?:i|we) (?:help|support|assist|respond|protect|tell)|what (?:should|do|can) i (?:do|say)|get (?:help|support)|find (?:a )?(?:therapist|counsell?or)|in my (?:thesis|essay|novel|research|book|paper)|support group|postvention|peer (?:support|counsell?ing))\b'
+      - '\b(?:friend|sister|brother|son|daughter|student|colleague|roommate|wife|husband|mother|father|teen) (?:says|said|told me|keeps (?:saying|talking about)|has been|is)\b[\s\S]{0,44}\b(?:wants to die|kill (?:him|her)(?:self)?|hurt (?:him|her)(?:self)?|self.?harm|end (?:it|her life|his life))\b'
+      - '\b(?:support|cope|recover|healing|depression help|what to do if)\b'
+      - '(?: সাহায্য|হেল্পলাইন|কাউন্সেলিং)'
+      - "\\b(?:i )?(?:would|will) never (?:do|act|hurt|kill|try|go through with)\\b[\\s\\S]{0,28}\\b(?:anything|it|myself|hurt myself|anyone)\\b"
+      - "\\bwish(?:ed)? i (?:were|was) (?:dead|not here|not alive)\\b[\\s\\S]{0,60}\\b(?:but|however|though|never)\\b"
+      - "\\b(?:reporting|coverage|article|headlines?)\\b[\\s\\S]{0,24}\\b(?:on|of) (?:suicide|self.?harm)\\b"
+
+  - id: violent_threats
+    description: >-
+      A stated intent to physically harm a named or present person, including threat verbs aimed at a real
+      target.
+    name: Real-world violence and threats
+    stage: stage1
+    category: violence
+    severity: critical
+    action: block
+    min_score: 0.60
+    regex:
+      patterns:
+        - "\\b(?:beat|bash|punch|kick|slash|cut|stab|burn|torture)\\s+(?:him|her|them|you|it)\\b[\\s\\S]{0,28}\\b(?:until|till)\\b[\\s\\S]{0,28}\\b(?:bleed\\w*|cri\\w+|scream\\w*|beg\\w*|learn\\w*|die|dead|in the hospital|in tears|unconscious)\\b"
+        - "\\b(?:that will|gonna|going to) teach (?:him|her|them)\\b[\\s\\S]{0,32}\\b(?:a lesson|with|by)\\b[\\s\\S]{0,28}\\b(?:beat|blood|bleed|break|knock|punch|knife)\\w*\\b"
+        - "\\b(?:you|he|she|they|anyone who) deserve[s]? to be (?:raped|killed|beaten|burned|burnt|tortured|hanged|shot|stabbed|gang ?banged)\\b"
+        - "\\b(?:i|we) (?:am |'m )?(?:going to|gonna|will|want to) (?:rape|gang ?bang|kill|beat up|burn|stab) (?:you|him|her|them|that|the \\w+)\\b"
+        - "\\b(?:rape|kill|burn|stab) (?:her|him|them|you)\\b[\\s\\S]{0,24}\\b(?:tonight|tomorrow|today|i mean it|just you wait|watch your back)\\b"
+        - "\\b(?:আমি\\s+)?চাই\\b[\\s\\S]{0,44}\\b(?:মারি|মারবো|মেরে ফেলবো|ধরবো|পুড়িয়ে|ধরে কাজ করবো)\\b"
+        - "\\b(?:should|must|need to|gotta|going to|will)\\s+(?:kill|destroy|wipe out|ruin|attack|hurt)\\s+my\\s+(?:enemies?|rivals?|ex|boss|teacher|neighbours?|neighbors?|colleagues?)[\\s\\S]{0,28}\\b(?:tonight|today|tomorrow|this week|soon|by (?:monday|friday|then))\\b"
+        - "\\bwish\\b[\\s\\S]{0,24}\\b(?:dead|die|disappear|gone)\\b[\\s\\S]{0,28}\\b(?:my|his|her|the)\\s+(?:ex|boss|teacher|neighbour|neighbor|landlord|colleague)\\b"
+        - '(?:i will|i''ll|gonna|going to) (?:shoot|stab|beat up|burn|bomb|attack|kill|rape|assault)\s+(?:you|him|her|them|my|the)\b'
+        - '(?:school|workplace|mall|mosque|church|temple|synagogue|concert|school shooting) attack plan'
+        - '(?:how to )?(?:build|make|assemble) (?:a )?(?:bomb|explosive|pipe bomb|ied|molotov|napalm|nerve agent)'
+        - '(?:car bomb|suicide vest|bioweapon|ricin|anthrax) (?:instructions|recipe|how to)'
+        - '(?:how (?:do|can|would|should) i|i (?:want to|need to|plan to|planning to|am going to|will|\x27ll))\b[^.!?\n]{0,44}\b(?:kill|murder|shoot|stab|poison|strangle|burn|torture|hurt)\b[^.!?\n]{0,44}\b(?:him|her|them|my (?:ex|boss|teacher|professor|neighbo?r|roommate|husband|wife|friend|brother|sister|cousin|landlord)|the (?:teacher|professor|kid|girl|boy|woman|man|guard)|you)\b'
+        - '\b(?:want to|going to|gonna|i will|i\x27ll|planning to|i\x27d like to) (?:burn|torch|set fire to|bomb)\b[\s\S]{0,20}\b(?:house|home|apartment|flat|building|car|truck|shop|store|office|school|mosque|church|temple)\b'
+        - '\b(?:beat|bash|punch|kick|stab|cut|hit|slap) (?:him|her|them|the \w+)\b[\s\S]{0,28}\b(?:until|till)\b[\s\S]{0,28}\b(?:bleed|die|dead|unconscious|cries|screams|can\x27t walk)\b'
+        - '\b(?:teach (?:him|her|them) a lesson|make (?:him|her|them) (?:suffer|pay|regret))\b[\s\S]{0,44}\b(?:blood|hurt|pain|die|kill|burn|beat|scream)\b'
+        - '\b(?:i\x27l|will|going to|gonna|i want to) (?:rape|molest|assault|grope) (?:you|him|her|them|my|the)\b'
+        - '(?:যে (?:কাল|আজ|আগামীকাল|পেটাবো)[\s\S]{0,28}(?:মারবো|পেটাবো|কাটবো|রক্ত|জ্বালাই))|(?:মেরে ফেলবো|লাথি মেরে|পেটিয়ে দিব)'
+        - '\b(?:কাল|আগামীকাল|আজকে|আজ)[\s\S]{0,28}(?:পেটাবো|মারবো|কাটবো|জ্বালাইব|রক্ত|মেরে)'
+        - '\b(?:পেটাবো|মারবো|কাটবো|জ্বালাইব|মেরে ফেলবো|রক্ত বের করে দেবো)\b'
+      boost: 0.6
+    exceptions:
+      - '\b(?:novel|story|fiction|screenplay|game|dnd|rpg|movie|history|essay|report)\b'
+      - '\b(?:video game|minecraft|fortnite|counter-?strike|call of duty)\b'
+      - '\b(?:how do (?:police|investigators|security) (?:prevent|detect|stop))\b'
+
+  - id: sexual_content
+    description: >-
+      Sexually explicit material and non-consensual intimate imagery requests.
+    name: Sexually explicit content
+    stage: stage1
+    category: sexual
+    severity: high
+    action: block
+    min_score: 0.68
+    regex:
+      patterns:
+        - "\\b(?:graphic|graphicly|explicit|detailed|vivid|step[- ]by[- ]step)\\b[\\s\\S]{0,34}\\b(?:rape|sexual assault|assault|molestation)\\b[\\s\\S]{0,72}\\b(?:point of view|perspective|side|mind|shoes|voice|defence|defense)\\b"
+        - "\\bwhat\\s+(?:does|do|did)?\\s*(?:rape|being raped|sexual assault|rape feel)\\b[\\s\\S]{0,24}\\bfeel(?:s|ing)? like\\b"
+        - "\\b(?:write|describe|imagine|roleplay|role ?play)\\b[\\s\\S]{0,30}\\bas (?:the |a |an )?(?:rapist|molester|assaulter|attacker|predator|abuser)\\b"
+        - "\\b(?:make|generate|create|edit|photoshop|deepfake|render|send|post|leak|compile)\\b[\\s\\S]{0,32}\\b(?:nude|naked|topless|nsfw|erotic|sexual|lewd)\\b[\\s\\S]{0,24}\\b(?:photos?|images?|pics?|videos?|shots?|renders?|deep ?fakes?)\\b[\\s\\S]{0,32}\\b(?:of|from)\\b[\\s\\S]{0,28}\\b(?:my|his|her|the|a|this|that|ex-?\\w+|\\w+'?s)\\b"
+        - "\\b(?:best|top|list of|any|some|good)\\b[\\s\\S]{0,16}\\b(?:porn|xxx|xnxx|nude|nsfw|adult|sex)\\b[\\s\\S]{0,12}\\b(?:sites?|websites?|tubes?|videos?|hubs?|com)\\b"
+        - "\\bfree\\b[\\s\\S]{0,12}\\b(?:porn|xxx|nudes)\\b[\\s\\S]{0,16}\\b(?:sites?|videos?|download|stream)\\b"
+        - "\\b(?:graphic|explicit|detailed|step[- ]by[- ]step)\\b[\\s\\S]{0,28}\\b(?:rape|sexual assault|assault)\\b[\\s\\S]{0,44}\\b(?:from the (?:perspective|point of view|side|mind) of|as (?:the|a) (?:rapist|assault\\w*|attacker|perpetrator))\\b"
+        - "\\b(?:from the (?:perspective|point of view) of|as) (?:the |a )?(?:rapist|molester|assaulter|attacker|predator)\\b[\\s\\S]{0,40}\\b(?:feel|enjoy|like|detail|describe|write)\\b"
+        - '(?:explicit|hardcore|uncensored) (?:porn|sex|xxx|erotic) (?:story|scene|video|material)'
+        - '(?:rape|non.?consensual|forced) (?:sex|scene|story|fantasy)'
+        - '(?:child|minor|underage|preteen|loli|shota) (?:porn|nsfw|erotic|nude|sex)'
+        - '(?:sex (?:tape|video|pics|photos)) of (?:my|a real) \w+'
+        - '\b(?:write|generate|create|make)\b[\s\S]{0,36}\b(?:erotic|porn|pornographic|explicit|steamy|nsfw|lewd|horny|hardcore)\b[\s\S]{0,32}\b(?:story|scene|fiction|script|chapter|fanfic|images?|pics?|nudes?|video|footage|gif)\b'
+        - '\b(?:write|give me|generate)\b[\s\S]{0,28}\b(?:dirty talk|sex (?:scene|positions?|fantasy)|foreplay|orgasm)\b'
+        - '\b(?:erotic|explicit|porn) (?:\w+ )?(?:\w+ )?(?:of|about|involving) (?:my|his|her|a real)\b'
+      boost: 0.6
+    classifier:
+      label: nsfw
+      min_score: 0.7
+      boost: 0.4
+    exceptions:
+      - '\b(?:health|sexual education|consent (?:talk|class|training)|std|sti|contraception|reproductive|anatomy|clinical|medical|history of)\b'
+      - '\b(?:is it (?:normal|healthy)|relationship advice|safe sex)\b'
+
+  - id: hate_or_harassment_llm_only
+    name: Judge-detected toxicity without lexical evidence
+    stage: stage1
+    category: toxic
+    severity: medium
+    action: block
+    min_score: 0.80
+    description: >-
+      Catches toxicity our lexicons do not know (new slang, other languages) from
+      the small-LLM verdict alone. The high gate keeps the false-positive rate down.
+    llm_categories:
+      categories: [hate, harassment, violence, sexual, self_harm, toxic, bullying]
+      min_score: 0.8
+      boost: 0.5
+    classifier:
+      label: toxicity
+      min_score: 0.8
+      boost: 0.4
+    require_all_clauses: false
+
+  # ===========================================================================
+  # STAGE 1 - prompt injection / jailbreak
+  # ===========================================================================
+  - id: guardrail_bypass_coaching
+    name: "Asking for the wording that defeats a filter"
+    stage: stage1
+    category: prompt_injection
+    severity: medium
+    action: block
+    min_score: 0.6
+    description: >-
+      Requests for the exact phrasing that defeats moderation are a reconnaissance step of a
+      larger abuse attempt and useless to someone who just wants to post something legitimate.
+      Email deliverability and spam-filter tuning are exempted because that industry uses the
+      same verbs for entirely ordinary reasons.
+    regex:
+      patterns:
+        - "\\b(?:sentences?|phrases?|words?|prompts?|text)\\b[\\s\\S]{0,40}\\b(?:that|which|to)\\b[\\s\\S]{0,24}\\b(?:make|get|cause|help)\\b[\\s\\S]{0,30}\\b(?:moderation|filter|api|system|guard ?rails?|safety|censorship)\\b[\\s\\S]{0,26}\\b(?:block|flag|reject|miss|skip|allow|pass|ignore|remove)\\b[\\s\\S]{0,18}\\b(?:nothing|not|never|at all|anything|everything|text|content|posts?|replies?|output|comments?)\\b"
+        - '\b(?:what|which|tell me|list|give me|show me)\b[\s\S]{0,40}\b(?:exact|precise|specific|magic|trigger)?\s*(?:sentences?|phrases?|words?|prompts?|wordings?|triggers?|keywords?)\b[\s\S]{0,32}\b(?:bypass|evade|beat|defeat|trick|fool|dodge|get past|avoid)\b[\s\S]{0,28}\b(?:moderation|filter|guard ?rails?|safety (?:system|checker)|content (?:policy|filter)|censorship|this (?:api|system))\b'
+        - '\bhow (?:can|do|would|could) (?:i|you|one|we) (?:bypass|evade|beat|defeat|trick|fool|dodge|get around|slip past)\b[\s\S]{0,24}\b(?:moderation|content (?:filter|policy|control)|safety (?:check|filter|system)|guard ?rails?|your (?:filter|safety|rules|policy|api)|the (?:filter|blocker|guardrail))\b'
+        - '\b(?:prompts?|jailbreaks?|strings?) (?:that|to|which) (?:would |could |will )?(?:bypass|evade|defeat|beat|trick)\b[\s\S]{0,24}\b(?:moderation|safety|filter|guardrails?|policy|censorship)\b'
+        - '\b(?:make|get|force) (?:the|your|this) (?:model|assistant|bot|api|system) (?:to )?(?:ignore|say|output|reveal|produce|generate)\b[\s\S]{0,28}\b(?:blocked|forbidden|nsfw|system prompt|instructions|anything i want|jailbroken)\b'
+      boost: 0.62
+    exceptions:
+      - '\b(?:spam filter|deliverability|inbox placement|email (?:deliverability|authentication|server)|dmarc|spf|dkim|whitelist(?:ing)?|blocklist)\b'
+      - '\b(?:how (?:do|can) (?:i|we) (?:report|appeal|flag|block|filter out)|parental controls?|child safety|account recovery|false positive|appeal (?:my|the) (?:post|account|removal))\b'
+
+  - id: prompt_injection_classic
+    description: >-
+      Direct attempts to overwrite or exfiltrate the system prompt and instructions.
+    name: Instruction override ("ignore previous instructions")
+    stage: stage1
+    category: prompt_injection
+    severity: critical
+    action: block
+    min_score: 0.50
+    regex:
+      patterns:
+        - "\\b(?:forget|ignore|discard|drop|disregard|unlearn)\\b[\\s\\S]{0,24}\\b(?:everything|all (?:of )?(?:that|you know)|what you were (?:told|taught|given)|your (?:rules|training|instructions|guidelines|original prompt))\\b"
+        - "\\breveal\\b[\\s\\S]{0,24}\\b(?:hidden|secret|internal|underlying|initial|system|developer)\\b[\\s\\S]{0,20}\\b(?:prompt|instructions?|message|rules|notes|text)\\b"
+        - '(?:ignore|disregard|forget|bypass|skip|override)\s+(?:all\s+|any\s+|the\s+)?(?:previous|prior|above|earlier|preceding|original|system|safety|core|initial)\s+(?:instructions?|prompts?|rules?|directives?|messages?|guidelines?|context)'
+        - '(?:\bnew\s+instructions?\b|\bupdated\s+instructions?\b)\s*:'
+        - 'you\s+(?:are|must) (?:now |no longer )*(?:in )?(?:developer|dan|god|admin|root|jailbreak|unrestricted|jailbroken|unfiltered) mode'
+        - '(?:reveal|print|repeat|show|leak|output|dump|translate)\s+(?:me\s+)?(?:the\s+|your\s+)?(?:hidden\s+|initial\s+|system\s+|secret\s+|full\s+)?(?:prompt|instructions|rules|policy|system message)'
+        - '(?:\bsystem\s*:\s*(?:you|allow|disable|override)|\[/?INST\]|<\|im_start\|>|<\|endoftext\|>|###\s*(?:system|instruction))'
+        - '(?:আগের|পূর্ববর্তী|ওপরের|সব|তোমার|আপনার)[\s\S]{0,16}(?:নির্দেশনা?|নির্দেশ|প্রম্পট|রুলস?|নিয়ম)[\s\S]{0,12}(?:উপেক্ষা|অবহেলা|মানো না|বাদ দাও|ভুলে যাও|কেটে ফেল)'
+        - '(?:উপেক্ষা|অবহেলা)\s*(?:করো|করুন)\s*(?:আগের|সব)?\s*(?:নির্দেশনা?|প্রম্পট)?'
+        - '(?:সিস্টেম|system)[\s\S]{0,10}(?:প্রম্পট|prompt|নির্দেশ)[\s\S]{0,20}(?:দেখাও|বলো|প্রিন্ট করো|লিখে দাও|দাও)'
+        - '(?:सभी|पिछले)\s+(?:निर्देश|नियम)\s*(?:भूल जाओ|नज़रअंदाज़)'
+        - '(?:তুমি|আপনি)\s+(?:এখন|এখান থেকে)[\s\S]{0,30}(?:কোনো নিয়ম নয়|সীমাবদ্ধতা নেই|নিয়ম মানবেন না)'
+        - '\b(?:begin|start|new|updated|revised|real|actual|hidden)\s+(?:system\s+|developer\s+|user\s+)?(?:instructions?|directives?|rules?)\b\s*[:.]'
+        - '(?:ignore|disregard|forget|bypass|override|drop)\s+(?:all\s+|any\s+)?(?:the\s+|your\s+)?(?:previous\s+|prior\s+|above\s+|earlier\s+)?(?:moderation|safety|content|policy|guardrail|filter|system)?\s*(?:policy|policies|rules|guidelines|instructions|filters|guidance|guardrails)\s+(?:above|below|now|anymore|entirely)?'
+        - '#{2,}\s*(?:new|updated|revised|real|actual)?\s*(?:system|instruction|assistant|developer|admin|root)(?:\s+message)?\s*(?:##|#|$)'
+        - '\b(?:everything|all of (?:this|that)|the (?:text|content|words|message|stuff) above)\b[\s\S]{0,32}\b(?:above|before this|preceding this)[\s\S]{0,40}\b(?:code block|verbatim|word for word|again|exactly|plainly|translate)\b'
+        - '\b(?:as i (?:asked|told) you (?:earlier|before)[\s\S]{0,40}(?:you (?:will|must) (?:now|again)))'
+        - '\b(?:for the rest of (?:this|the) (?:chat|conversation|session))\b[\s\S]{0,44}\b(?:ignore|bypass|no (?:rules|filter)|without (?:rules|filters)|disabled)\b'
+        - '\b(?:disable|turn off|switch off|deactivate|bypass)\b[\s\S]{0,28}\b(?:moderation|filter|filters|safety (?:checks?|guidelines?)|guardrail[s]?|policy|blocklist)\b'
+      boost: 0.65
+    obfuscation:
+      min_score: 0.45
+      flags: [zero_width, bidi_control, letter_spacing]
+      boost: 0.25
+    exceptions:
+      - '\b(?:prompt injection|jailbreak|attack) (?:example|demo|test case|dataset|label|description|report|study)\b'
+      - '\b(?:how (?:do|can) (?:i|we|you) (?:prevent|detect|defend against|mitigate))\b'
+      - '\b(?:red team(ing)?|penetration test|security review|threat model)\b'
+
+  - id: role_play_override
+    description: >-
+      Persona, 'developer mode' and fictional-shield framings used to suspend the policy.
+    name: Persona / role-play jailbreak
+    stage: stage1
+    category: jailbreak
+    severity: high
+    action: block
+    min_score: 0.60
+    regex:
+      patterns:
+        - "নিয়ম\\s+ভুলে"
+        - "কোনো\\s+(?:বাধা|নিয়ম|সীমাবদ্ধতা|বিধি)\\s+(?:মানব(?:ে|েন)?\\s*না|রাখব(?:ে|েন)?\\s*না|মানে\\s*না|নেই)"
+        - "তুমি\\s+আর\\s+কোনো\\s+(?:নিয়ম|বাধা)\\s+মানব(?:ে|েন)?\\s*না"
+        - '(?:pretend (?:to be|you are|being)|act as|roleplay as|role ?play|imagine you(?:''re| are)|you are (?:now|allowed to|capable of))\b[\s\S]{0,80}\b(?:without (?:any )?(?:rules|limits|restrictions|filters|guardrails|ethics|laws)|no (?:rules|limits|restrictions|filters)|ignore(?:s)? (?:the|your|all) (?:rules|guidelines|policy)|uncensored|unrestricted|jailbroken)'
+        - '\b(?:dan|developer mode|do anything now|anti-gpt|jailbreak mode|jailbreak-?\d+)\b'
+        - '(?:hypothetically|in a fictional world|for research purposes?|this is a test|it is all fiction)\b[\s\S]{0,60}\b(?:how (?:to|do i))\b'
+        - '(?:say only\b|\brespond with only\b|\bfrom now on (?:you|always))\b[\s\S]{0,60}\b(?:yes,? i can|no restrictions|rules? disabled)'
+        - '\b(?:do anything now|aiml|developer mode|god mode|admin mode|root mode|unrestricted mode|audit mode|testing mode|debug mode)\b'
+        - '\b(?:pretend (?:to be|you are)|act as|roleplay as|imagine you are|you are now|speak as|answer as)\b[\s\S]{0,72}\b(?:read|reads|telling|tell|say|says|recite|share|whisper|narrate|write out|dictate)\b[\s\S]{0,48}\b(?:recipe|instructions?|guide|manual|formula|steps|tutorial|how to|list of|code for)\b'
+        - '\b(?:you (?:have|are) (?:switched|entered|been put) (?:into )?(?:developer|admin|root|unrestricted|debug) mode)\b'
+        - '\b(?:confirm|reply|say|answer)\b[\s\S]{0,24}\b(?:if you can (?:ignore|bypass|override)|that you (?:can|will) ignore)\b'
+        - 'কোনো (?:বাধা|নিয়ম|সীমাবদ্ধতা) (?:মানবেন না|রাখবেন না|নেই)'
+      boost: 0.55
+    llm_categories:
+      categories: [jailbreak, prompt_injection]
+      min_score: 0.6
+      boost: 0.4
+    exceptions:
+      - '\b(?:customer service|polite|formal|concise|summarize|in bangla|in english|as a teacher|as a tutor|professional tone)\b'
+
+  - id: encoded_payload
+    name: Encoded / split payloads that hide instructions
+    stage: stage1
+    category: prompt_injection
+    severity: high
+    action: block
+    min_score: 0.55
+    description: base64/hex/rot13/url-encoded blobs that decode into instructions.
+    payloads:
+      signals: [base64, hex, rot13, unicode_escape, prompt_like_json]
+      min_score: 0.3
+      boost: 0.6
+    exceptions:
+      - '\b(?:jwt|base64 decode this json|my image is a png)\b'
+
+  - id: obfuscated_text
+    name: Evasive text (zero-width, bidi, leetspeak)
+    stage: stage1
+    category: obfuscation
+    severity: medium
+    action: rewrite
+    min_score: 0.70
+    description: >-
+      Heavy obfuscation on its own is not harm, so we rewrite (normalise) rather
+      than block, and only flag it as an injection signal in strict mode.
+    obfuscation:
+      min_score: 0.6
+      boost: 0.65
+    applies_to_modes: [strict, balanced, lenient]
+
+  - id: indirect_injection_documents
+    name: Injected instructions in pasted documents
+    stage: stage1
+    category: prompt_injection
+    severity: high
+    action: block
+    min_score: 0.62
+    description: >-
+      Indirect injection: instructions aimed at the model that arrive inside text
+      the user pasted or uploaded ("summary of the attached file" payloads).
+    require_all_clauses: false
+    regex:
+      patterns:
+        - '(?:<!--|/\*|#)\s*(?:system|admin|ai|assistant)[^>]{0,160}(?:ignore|instruction|reveal|override|disregard)[^<]{0,160}(?:-->|\*/)?'
+        - '(?:if you are an ai|attention (?:ai|assistant|language model|model)|hey (?:gpt|claude|gemini|assistant)|to the ai (?:reading|summarizing))\b'
+        - '(?:this document (?:is|contains) (?:an )?instruction|after (?:summarizing|reading) (?:this|the document),? (?:you )?(?:must|should|ignore))'
+        - '(?:do not (?:tell|mention|inform) (?:the )?user)'
+      boost: 0.6
+    exceptions:
+      - '\b(?:html css javascript code snippet|comment in my code|the html spec)\b'
+
+  # ===========================================================================
+  # STAGE 2 - content policy (PII / NSFW / legal)
+  # ===========================================================================
+  - id: pii_email
+    name: Email address
+    stage: stage2
+    category: pii
+    severity: high
+    action: mask
+    min_score: 0.35
+    pii_entities: [EMAIL_ADDRESS]
+    replacement: "[EMAIL]"
+    description: Masked so personal contacts never reach the generation model or the logs.
+
+  - id: pii_phone
+    description: >-
+      Phone numbers are masked so contact details never reach the model or the logs.
+    name: Phone number (incl. Bangladesh formats)
+    stage: stage2
+    category: pii
+    severity: high
+    action: mask
+    min_score: 0.35
+    pii_entities: [PHONE_NUMBER]
+    replacement: "[PHONE]"
+
+  - id: pii_date_of_birth
+    name: Date of birth
+    stage: stage2
+    category: pii
+    severity: high
+    action: mask
+    min_score: 0.3
+    pii_entities: [DATE_OF_BIRTH]
+    replacement: "[DATE_OF_BIRTH]"
+    description: >-
+      A birth date on its own looks harmless, which is exactly why it is valuable: it is the
+      answer to the first security question on most Bangladeshi and western account-recovery
+      flows, and it appears in the same breath as a name in clinic, school and form-filling
+      traffic. Masked rather than blocked so the request still works.
+
+  - id: pii_national_id
+    description: >-
+      NID, birth-certificate, passport, licence and SSN numbers are the strongest identifiers in this
+      traffic.
+    name: National ID / birth certificate (Bangladesh) & SSN
+    stage: stage2
+    category: pii
+    severity: critical
+    action: mask
+    min_score: 0.3
+    pii_entities: [US_SSN, ID_NUMBER, NID_NUMBER, BIRTH_CERTIFICATE, PASSPORT_NUMBER, DRIVERS_LICENSE]
+    replacement: "[NATIONAL_ID]"
+
+  - id: pii_payment_card
+    description: >-
+      Card numbers are masked regardless of Luhn validity; a failed check is still exposure.
+    name: Payment card number
+    stage: stage2
+    category: pii
+    severity: critical
+    action: mask
+    min_score: 0.3
+    pii_entities: [CREDIT_CARD, CURRENCY]
+    replacement: "[CARD]"
+
+  - id: pii_home_address
+    description: >-
+      Physical addresses are masked: they are the identifier that turns doxxing into real-world harm.
+    name: Physical address
+    stage: stage2
+    category: pii
+    severity: high
+    action: mask
+    min_score: 0.45
+    pii_entities: [ADDRESS, LOCATION]
+    replacement: "[ADDRESS]"
+
+  - id: pii_personal_name
+    name: Private personal name
+    stage: stage2
+    category: pii
+    severity: medium
+    action: mask
+    min_score: 0.75
+    description: >-
+      Only masked when the name appears next to another identifier (a doxxing
+      signature); a bare name in an essay is left alone to keep false positives low.
+    pii_entities: [PERSON]
+    replacement: "[NAME]"
+    requires_policy_hits: [pii_email, pii_phone, pii_home_address, pii_national_id, pii_ip_device]
+
+  - id: pii_ip_device
+    description: >-
+      IP addresses and device identifiers are masked; version-like quads are left alone by the detector.
+    name: IP address / device identifiers
+    stage: stage2
+    category: pii
+    severity: medium
+    action: mask
+    min_score: 0.4
+    pii_entities: [IP_ADDRESS, DEVICE_ID, BANK_ACCOUNT, IBAN]
+    replacement: "[IDENTIFIER]"
+
+  - id: doxxing_bundle
+    name: 'Doxxing: several identifiers together'
+    stage: stage2
+    category: doxxing
+    severity: critical
+    action: block
+    min_score: 0.55
+    require_all_clauses: false
+    entities:
+      entities: [EMAIL_ADDRESS, PHONE_NUMBER, ADDRESS, ID_NUMBER, NID_NUMBER, IP_ADDRESS]
+      min_count: 3
+      boost: 0.6
+    description: Publishing someone's contact cluster is harassment even if each field alone is maskable.
+
+  - id: doxxing_intent_bundle
+    name: "Doxxing: identifiers plus publication intent"
+    stage: stage2
+    category: doxxing
+    severity: critical
+    action: block
+    min_score: 0.6
+    description: >-
+      doxxing_bundle needs three identifiers, which is right for a data dump but blind to the
+      common case: two identifiers plus an explicit intent to publish. require_all_clauses makes
+      the policy need BOTH the identifier clause and the intent clause, so "email me at
+      x@y.com, phone 0171..." in a work note is not blocked - only asking to put someone's data
+      out there is.
+    require_all_clauses: true
+    entities:
+      entities: [EMAIL_ADDRESS, PHONE_NUMBER, ADDRESS, NID_NUMBER, ID_NUMBER, IP_ADDRESS, PASSPORT_NUMBER]
+      min_count: 2
+      boost: 0.5
+    regex:
+      patterns:
+        - '\b(?:post|publish|leak|upload|blast|distribute|share|put|send|paste|doxx?|dox)\b[\s\S]{0,56}\b(?:her|his|their|my ex|that (?:girl|guy)|the (?:teacher|girl|boy|man|woman))\b[\s\S]{0,30}\b(?:email|e-mail|phone|mobile|address|home|flat|apartment|house|nid|passport|photos?|pics?|nudes?|workplace|school|work)\b'
+        - '\b(?:email|e-mail|phone|mobile|address|flat|house|nid|passport|photos?|nudes?)\b[\s\S]{0,64}\b(?:doxx?|dox|post (?:this|it|them)|publish|leak|everywhere|the internet|facebook|twitter|reddit|group|forum|page|wall|status)\b'
+        - '\b(?:teach (?:him|her|them) a lesson|get (?:people|the mob|them) (?:to (?:visit|come|find)|after)|make (?:him|her|them) (?:suffer|regret))\b[\s\S]{0,56}\b(?:address|email|phone|photo|name and|work)\b'
+      boost: 0.55
+
+  - id: doxxing_publication_language
+    name: "Doxxing: publishing identifiers on request"
+    stage: stage2
+    category: doxxing
+    severity: high
+    action: block
+    min_score: 0.62
+    description: >-
+      Language-only companion to doxxing_bundle: putting someone's contact details in
+      front of a crowd is the harm, whether or not the data is already pasted here. The
+      bundle needs two real identifiers, which is the right bar for a data dump but blind
+      to an instruction that arrives before the data - and to the same instruction
+      base64-wrapped, since decoded text is folded into the detection view.
+    regex:
+      patterns:
+        - "\\b(?:post|publish|leak|upload|paste|blast|distribute|share|doxx?|dox)\\b[\\s\\S]{0,48}\\b(?:home|house|flat|apartment|address|personal|private|work|official|email|e-mail|phone|mobile|number|nid|passport|id (?:card|number)|photo|pics?|nude)[\\s\\S]{0,44}\\b(?:facebook|twitter|x\\.com|reddit|instagram|website|forum|group|page|wall|status|everywhere|internet|publicly|the world)\\b"
+        - "\\b(?:doxx?|dox|publish|leak|post|blast|upload|put up|share)\\b[\\s\\S]{0,32}\\b(?:his|her|their|my ex|that (?:girl|guy)|the (?:teacher|journalist|activist|politician|girl|boy|man|woman|student)|[\\w'-]+s)\\b[\\s\\S]{0,28}\\b(?:address|home address|email|e-mail|phone|mobile|workplace|school|kids? school|nid|passport|id number|photo|pics?)\\b"
+        - "\\b(?:email|e-mail|phone|address|nid|passport|id number|home number)\\b[\\s\\S]{0,60}\\b(?:post|publish|leak|share|blast|upload|put)\\b[\\s\\S]{0,28}\\b(?:it|this|them|these|the (?:whole|entire)|everywhere|everyone|all over|publicly)\\b"
+        - "\\b(?:mob|crowd|followers|people)\\b[\\s\\S]{0,36}\\b(?:visit|show up|go to|find|harass|teach|surround)\\b[\\s\\S]{0,32}\\b(?:his|her|their|the)\\b[\\s\\S]{0,24}\\b(?:home|door|address|house|flat|office|school)\\b"
+      boost: 0.7
+    exceptions:
+      - "\\b(?:what is doxxing|definition of doxxing|doxxing (?:law|is illegal|policy)|how (?:do|can) (?:i|we) (?:prevent|stop|protect|remove|delete|report|take down))\\b"
+      - "\\b(?:victim|survivor|journalist safety|security awareness|my (?:own|business)|our (?:office|company|shop|address)|customer (?:support|service))\\b"
+  - id: private_correspondence
+    description: >-
+      Requests to draft or forward private messages about a named third party get flagged, not answered
+      verbatim.
+    name: Leaked private messages
+    stage: stage2
+    category: privacy
+    severity: high
+    action: block
+    min_score: 0.7
+    regex:
+      patterns:
+        - '(?:leaked|dumped|published|forwarded)\s+(?:private|dm|dm''s|whatsapp|telegram|signal|inbox|sms)\s+(?:screenshots?|messages?|conversation|chats?)'
+        - '(?:here (?:is|are) (?:my|her|his) (?:ex|crush|classmate))[\s\S]{0,40}(?:texts?|chats?|dm)'
+        - '(?:dox|doxxing|outing) (?:this|that|a) (?:person|student|girl|boy|woman|man)'
+      boost: 0.6
+
+  - id: nsfw_escalation
+    description: >-
+      Explicit material that also involves a real, identifiable person escalates instead of being quietly
+      rewritten.
+    name: Explicit content beyond block threshold
+    stage: stage2
+    category: nsfw
+    severity: high
+    action: block
+    min_score: 0.75
+    classifier:
+      label: nsfw
+      min_score: 0.75
+      boost: 0.5
+    exceptions:
+      - '\b(?:medical|clinical|anatomy|reproductive health|breastfeeding|childbirth)\b'
+
+  - id: defamation_risk
+    description: >-
+      Statements of fact about identifiable people that expose the operator; redacted with a
+      [REDACTED:LEGAL] marker.
+    name: Defamation / unverified accusations
+    stage: stage2
+    category: legal
+    severity: high
+    action: rewrite
+    min_score: 0.6
+    rewrite_hint: >-
+      Restate the sentence as an attributed allegation or a neutral question. Never
+      assert that a named person committed a crime or is morally corrupt.
+    regex:
+      patterns:
+        - '\b(?:mr\.?|ms\.?|mrs\.?|dr\.?|[A-Z][a-z]{2,})\s+(?:[A-Z][a-z]{2,}\s+)?(?:is|are|was|has been)\s+(?:a\s+|an\s+)?(?:thief|fraud|corrupt|scammer|cheater|liar|criminal|convict|pedophile|money launderer|embezzler|cheating)'
+        - '\b(?:he|she|they|it)\s+(?:is|was)\s+(?:clearly|definitely|obviously)\s+(?:a\s+)?(?:thief|fraud|scammer|corrupt|guilty|criminal)\b'
+        - '\bwrite (?:a|an) (?:post|tweet|article|review|comment) (?:that |saying )?(?:he|she|they) (?:is|was)\b'
+      boost: 0.55
+    exceptions:
+      - '\b(?:convicted by a court|found guilty in court|according to (?:the )?court|charged with)\b'
+      - '\b(?:fictional|novel|story|hypothetical person|john doe)\b'
+
+  - id: copyright_request
+    description: >-
+      Requests to reproduce long verbatim excerpts are redacted rather than answered.
+    name: Copyrighted material reproduction
+    stage: stage2
+    category: copyright
+    severity: medium
+    action: rewrite
+    min_score: 0.6
+    rewrite_hint: >-
+      Keep the user's goal (understanding, summarising) but remove any request to
+      reproduce long verbatim passages of a protected work.
+    regex:
+      patterns:
+        - '(?:copy|reproduce|print|paste|give me|send me|upload)\s+(?:me\s+)?(?:the\s+)?(?:entire|whole|full|complete|first \d+ pages? of|all)\s+(?:the\s+)?(?:chapter|book|novel|text|pdf|epub|lyrics|lyric|article|paper|report|script|source code)'
+        - '(?:lyrics?|lyrics for) (?:of|to|for) [A-Za-z ''-]{3,40}'
+        - '(?:scrap|crawl|download)\s+(?:all|every|the entire)\s+(?:content|site|articles?|videos?|transcripts?)'
+        - '(?:pirated?|cracked|torrent|9xfilm|movierulz|tamilrockers|1337x)\s+(?:link|download|site|copy)'
+      boost: 0.5
+    exceptions:
+      - '\b(?:public domain|open source|creative commons|my own|fair use (?:analysis|question)|cite|reference|summar\w+)\b'
+
+  - id: regulated_advice
+    description: >-
+      Medical, legal and financial instructions are answered with a disclaimer rather than a refusal.
+    name: Medical or legal advice needs a disclaimer
+    stage: stage2
+    category: regulated_advice
+    severity: low
+    action: disclaimer
+    min_score: 0.55
+    disclaimer: >-
+      This is general information, not medical or legal advice. Consult a qualified
+      doctor, pharmacist or lawyer in Bangladesh for decisions that affect your
+      health, money or liberty. Emergency? Call 999 / 102 (drug & suicide helpline).
+    regex:
+      patterns:
+        - '(?:what (?:medication|dose|dosage|pill|tablet|injection) should i (?:take|use)|should i (?:take|stop) (?:my|this) (?:medicine|dose|antibiotic|insulin|antidepressant))'
+        - '(?:how many (?:mg|ml|tablets?|pills?) (?:should|do) i take)'
+        - '(?:should i (?:file|sue|divorce|sign|reject)\b|is this contract (?:legal|valid)|how do i (?:get custody|avoid (?:taxes|jail)|press charges)|defend myself in court)'
+        - '(?:ইনজেকশন|ওষুধ|ট্যাবলেট)\s*(?:কত|কোন)\s*(?:খাব|লাগবে)'
+      boost: 0.45
+    exceptions:
+      - '\b(?:i am a (?:doctor|nurse|lawyer|medical student|law student)|for my (?:thesis|exam|class|research))\b'
+
+  - id: dangerous_goods
+    description: >-
+      Sourcing, buying or building weapons and controlled goods, including Bangla phrasing and firearm
+      variants.
+    name: Regulated goods and weapons commerce
+    stage: stage2
+    category: dangerous_goods
+    severity: critical
+    action: block
+    min_score: 0.6
+    regex:
+      patterns:
+        - "\\b(?:বন্দুক|রাইফেল|পিস্তল|কামান|অস্ত্র|গুলি|কার্তুজ)\\b[\\s\\S]{0,28}\\b(?:কিন\\w*|জোগাড়\\w*|দাও|দেখাও|যোগাড়\\w*|লাগবে|চাই)\\b"
+        - "\\b(?:অবৈধ|বেআইনি|চোরাচালান|কালো বাজার)\\b[\\s\\S]{0,28}\\b(?:বন্দুক|অস্ত্র|রাইফেল|পিস্তল|গুলি|মাদক|ড্রাগস|সোনা|কাঠ)\\b[\\s\\S]{0,24}\\b(?:কিন|পাও|জোগাড়|আন|লাগে)\\w*"
+        - '(?:buy|sell|buying|ordering|order|ship|shipping|smuggle|source|get my hands on) (?:a |an |\d+ )?(?:gun|guns|pistol|rifle|revolver|ammo|ammunition|silencer|grenade|knife to stab|handgun|ar ?15|ak[- ]?47|ak47|machine ?gun|shotgun|carbine|gun parts|lower receiver|80[% ]?receiver)'
+        - '(?:drugs?|cocaine|heroin|yaba|ice|mdma|ketamine|fentanyl) (?:for sale|price|supplier|dealer|bulk|delivery|wholesale)'
+        - '(?:fake|counterfeit|forged) (?:passport|nid|cash|currency|certificate|degree|stamp|banknote)'
+        - '(?:ইয়াবা|গanja|অস্ত্র) (?:কিনব|বিক্রি|দাম|সরবরাহ|সাপ্লায়ার)'
+        - '\b(?:how (?:do|can) i|i want to|i need to)\b[\s\S]{0,32}\b(?:get|buy|obtain|source|order|smuggle|ship|acquire)\b[\s\S]{0,28}\b(?:a |an |some )?(?:gun|pistol|revolver|rifle|handgun|ammo|ammunition|silencer|knife|sword|ar ?15|gun parts|receiver|grenade|explosive|tnt|c4|detonator|yaba|ice|heroin|cocaine|fentanyl|mdma|ketamine|counterfeit)\b'
+        - '\b(?:no (?:licence|license|permit)|unlicensed|without (?:a )?(?:licence|license|permit|documentation)|loose (?:gun|pistol)|country (?:made|bores)?)\b[\s\S]{0,32}\b(?:gun|pistol|revolver|rifle|handgun|ammo|knife|weapon)\b'
+        - '\b(?:gun|pistol|revolver|rifle|ammo|ammunition|silencer|knife)\b[\s\S]{0,28}\b(?:for sale|price|cost|supplier|dealer|delivery|shipping|wholesale|cash on|no licence|no license)\b'
+        - '\b\d+\s*(?:kg|g|gram|grams|oz|ounce|pcs|pieces|tablets|packs|bricks?)\b[\s\S]{0,28}\b(?:heroin|cocaine|crack|yaba|meth|methamphetamine|fentanyl|mdma|ecstasy|ketamine|shrooms|molly|opium|cannabis|weed|ganja|charas|acid|lsd)\b'
+        - '\b(?:heroin|cocaine|crack|yaba|meth|methamphetamine|fentanyl|mdma|ecstasy|ketamine|opium|acid|lsd|shrooms| Weed)\b[\s\S]{0,30}\b(?:for sale|price|cost|dealer|supplier|source|wholesale|bulk|delivery|to start|a brick)\b'
+      boost: 0.65
+
+  - id: gore_torture
+    description: >-
+      Graphic descriptions of suffering aimed at a real victim, as opposed to clinical or news language.
+    name: Graphic violence / torture content
+    stage: stage2
+    category: violence
+    severity: high
+    action: rewrite
+    min_score: 0.7
+    rewrite_hint: Remove gratuitous anatomical detail; keep the factual content.
+    regex:
+      patterns:
+        - '(?:gore|dismember|eviscerat|flay|tortur\w+)\s+(?:video|footage|pics|photos|description|details|story)'
+        - '(?:in graphic|in vivid|in extreme) detail(?:s)? (?:of|about) (?:the )?(?:wound|death|killing|torture|body|corpse|gore)'
+      boost: 0.5
+    exceptions:
+      - '\b(?:history|war museum|forensic (?:textbook|course)|news report|safety training|first aid)\b'
+
+  - id: minors_harm
+    name: Child safety
+    stage: stage2
+    category: child_safety
+    severity: critical
+    action: block
+    min_score: 0.4
+    description: Zero tolerance - no exception list on purpose.
+    regex:
+      patterns:
+        - "\\b(?:pretend\\w*|act\\w*|pose\\w*|pass\\w*|come across)\\b[\\s\\S]{0,20}\\b(?:to be|like)\\b[\\s\\S]{0,16}\\b(?:a |an )?(?:\\d{1,2}[- ]?(?:year[- ]old)?|teen|teenager|kid|child|schoolgirl|schoolboy|minor|girl|boy)\\b[\\s\\S]{0,48}\\b(?:so (?:i|that i) can|to )\\b[\\s\\S]{0,24}\\b(?:talk|chat|message|text|contact|meet|lure|groom|befriend)\\b"
+        - "\\b(?:talk|chat|message|text|befriend|get (?:to|close to)|meet)\\b[\\s\\S]{0,28}\\b(?:a |the |my )?(?:kid|child|minor|teen|student|classmate|girl|boy)\\b[\\s\\S]{0,40}\\b(?:without|secret|quiet|no one knows|without (?:her|his) (?:parents|knowing))\\b"
+        - "\\b(?:বাছ্চা|বাছ্চটা|শিশু|কিশোর|কিশোরী|ছাত্র|ছাত্রী)\\b[\\s\\S]{0,40}\\b(?:মারি|মারবো|মেরে ফেলবো|ধরবো|হাত তুল|ধর্ষণ|বলাৎকার|নগ্ন|অশ্লীল|ছবি তুলার|পিছিল কর)\\b"
+        - "\\b(?:ask|get|make|trick|convince|persuade|pressure|groom)\\b[\\s\\S]{0,40}\\b(?:young\\s+)?(?:teen|teens|kid|kids|child|children|minor|minors|girl|boy|student|classmate)\\b[\\s\\S]{0,40}\\b(?:send|take|share|post|upload|get)\\b[\\s\\S]{0,28}\\b(?:pictures?|photos?|pics|selfies?|nudes?|images?)\\b"
+        - "\\b(?:private|secret|quiet) (?:pictures?|photos?|pics)\\b[\\s\\S]{0,40}\\b(?:of|from|with)\\b[\\s\\S]{0,20}\\b(?:teen|teenager|kid|child|minor|girl|boy|student|classmate|she|her|he|him)\\b"
+        - "\\b(?:without (?:her|his|their|the) (?:parents?|knowing|worrying|consent)|nobody (?:has to|will) know|she won.t (?:mind|know)|don.t worry (?:her|him))\\b[\\s\\S]{0,40}\\b(?:pic|photo|image|nude|video|ask|send)\\b"
+        - '\b(?:csam|child porn|cp\b|minor porn|kiddie porn|pedo hunt|groom(?:ing)? (?:a )?(?:child|kid|minor|student)|nude[s]? (?:of|photos? of) (?:a )?(?:child|kid|minor|girl|boy|student|sister|daughter)|child(?:ren)? (?:for|sex slave|sold to))\b'
+        - '(?:বাচ্চা|শিশু|কিশোর|কিশোরী)\s*(?:নগ্ন|যৌন|ধর্ষণ|কিনব|বিক্রি)'
+        - '\b(?:buy|sell|purchase|find|marry|trade|traffic)\b[\s\S]{0,44}\b(?:a )?(?:\d{1,2})\s*(?:-|\s)?(?:year|yr|y/o)?s?\s*(?:old)?\s*(?:girl|boy|kid|child|virgin|teen|daughter|cousin|student)\b'
+        - '\b(?:virgins?|minor girls?|young girls?|kids?)\b[\s\S]{0,32}\b(?:for sale|price|how much|available|who wants|sell)\b'
+        - '\b(?:pretend|pose|act) (?:to be|as) (?:a |an )?(?:\d{1,2})\b[\s\S]{0,36}\b(?:to (?:talk|chat|message|contact|lure)|girls?|boys?|kids?|minors?|forum|chatroom)\b'
+        - '\b(?:secret|hidden|covert|nude|naked) (?:photos?|pics?|images?|videos?) (?:of|about)\b[\s\S]{0,28}\b(?:my |a |the )?(?:kid|kids|child|children|student|daughter|son|neighbour|sister|minor|teen|girl|boy)\b'
+        - '\b(?:buy|buys|buying|sell|sells|selling|trade|traffic|marry|find|get)\b[\s\S]{0,48}\b(?:a |any )?(?:the )?(?:\d{1,2})\s*(?:-|\s)?(?:year|yr|y/o)s?\s*(?:old)?\s*(?:girl|boy|kid|child|children|virgin|virgins|teen|daughter|son|cousin|student)\b'
+        - '\b(?:virgins?|minor girls?|young girls?|kids?|children)\b[\s\S]{0,40}\b(?:for sale|price|how much|available|who wants|who buys|sell|selling|buy|buys)\b'
+        - '\b(?:who (?:buys|sells|wants to buy|is buying)|where (?:can i|do i) (?:buy|get))\b[\s\S]{0,44}\b(?:virgins?|children|child|kids?|girls?|boys?|daughters?)\b'
+        - '(?:বাচ্চা|শিশু|কিশোর|কিশোরী|মেয়ে|ছেলে)[\s\S]{0,16}(?:বিক্রি|কিনব|কিনবো|দাম|নগ্ন|যৌন|ধর্ষণ)|(?:বিক্রি করবো|কিনবো)[\s\S]{0,24}(?:বাচ্চা|শিশু|মেয়ে|ছেলে|কন্যা)'
+        - '\b(?:groom|seduce|gain the trust of|make (?:her|him) (?:trust|comfortable))\b[\s\S]{0,40}\b(?:student|child|kid|minor|teen|girl|boy|pupil|\d{1,2}[- ]year[- ]old)\b'
+        - '\bwho (?:buys|wants to buy|is buying) (?:a )?(?:virgin|child|kid|girl)\b'
+      boost: 0.75
+    lexicon:
+      terms:
+        en: [young girls nude, little kids naked, student secret photos]
+        bn: [শিশু যৌন নির্যাতন, বাচ্চা কিনব]
+      boost: 0.6
+      whole_word: true
+
+  - id: mass_deception
+    description: >-
+      Coordinated deception: scam scripts, fake-review campaigns and phishing lures at scale.
+    name: Coordinated inauthentic behaviour / fraud kits
+    stage: stage2
+    category: fraud
+    severity: high
+    action: block
+    min_score: 0.62
+    regex:
+      patterns:
+        - '(?:phishing|spoofed?|clone[d]? website) (?:page|site|kit|template|tool|generator|panel)'
+        - '(?:b bulk|buy|500|1000) (?:fake|bot|inactive) (?:accounts?|followers|subscribers|reviews|upvotes)'
+        - '(?:bank ?drop|money launder|cash ?out|carding|cvv shop|bin attack|dumps and pins)'
+        - '(?:vote manipulation|bot farm|astroturf(?:ing)? (?:campaign|service)|fake news (?:template|campaign|generator))'
+      boost: 0.6
+    exceptions:
+      - '\b(?:how (?:do|can) (?:i|we) (?:avoid|detect|prevent|report|recognise|identify))\b'
+      - '\b(?:security awareness training|staff training|phishing simulation for education)\b'
+
+  - id: gambling_and_wagering
+    name: Gambling / wagering promotion
+    stage: stage1
+    category: gambling
+    severity: low
+    action: flag
+    min_score: 0.45
+    description: >-
+      Flag-only by design. Real-money wagering is a licensing and age-gating question in most
+      jurisdictions (and illegal in Bangladesh without a licence), not a safety threat, so the
+      API answers the request and the reviewer queue decides whether the tenant's policy should
+      escalate. Change `action` to `block` for deployments that must refuse outright.
+    regex:
+      patterns:
+        - "\\b(?:users?|players?|fans?|customers?|members?)\\b[\\s\\S]{0,20}\\bbet\\b|\\bbet\\b[\\s\\S]{0,16}\\b(?:today|now|with us|and win|to win)\\b|\\bdaily\\s+(?:fantasy\\s+)?(?:sports?|matches?)\\b[\\s\\S]{0,20}\\b(?:prize|win|contest)\\b"
+        - '\b(?:bet|betting|wager|wagering|odds|bookmaker|sports ?book|casino|roulette|blackjack|poker|slots|jackpot|lottery|loto|baccarat|craps|fantasy ?sports|live ?casino)\b[\s\S]{0,44}\b(?:money|win|place|stake|deposit|withdraw|bonus|offer|app|site|online|tonight|match|game|free ?spin)\b'
+        - '\b(?:roulette|blackjack|baccarat|poker|slots|slot machine|jackpot|sports ?book|bookmaker|casino|croupier|betting|betting site|wagering|lottery|loto|kickoff|match odds)\b'
+        - '\b(?:how (?:do|can) i (?:bet|win (?:money|big)|place a bet)|betting (?:app|site|bonus|tip|tipster)|idol ?casino|1x ?bet|1win|mel ?bet|most ?bet|10cric|odd ?slot)\b'
+        - '(?:জুয়া|বাজি|বেট|লটারি|ক্যাসিনো|স্লট ?গেম)'
+      boost: 0.5
+    exceptions:
+      - '\b(?:addict\w*|recover\w*|relapse|debt|loans?|counsell?ing|therapy|support group|gamblers? anonymous|help (?:him|her|them|my brother|my father)|stop (?:betting|gambling)|how (?:do|can) i (?:stop|quit))\b'
+      - '\b(?:legal|illegal|banned?|regulat\w*|licen[cs]e|law|policy|statistic\w*|research|essay|thesis|news|report|history|definition|what is)\b'
+      - 'আইন|আইনত|বৈধ|অবৈধ|নিষিদ্ধ|দক্ষণিয়|আদালত|সরকার|প্রবন্ধ|গবেষণা|নির্ভরশীল|সাহায্য'
+
+  - id: third_party_crisis
+    name: "Third-party crisis disclosure (someone else is at risk)"
+    stage: stage1
+    category: self_harm
+    severity: low
+    action: flag
+    min_score: 0.5
+    description: >-
+      Deliberately separate from self_harm, which is allowed to be quieted by its
+      help-seeking exception: a person describing somebody else's suicidal statement is not
+      in immediate danger, so nothing should be blocked, but a human should see it. Without
+      this policy the exceptions that protect the caller also erase the one signal that
+      somebody else may need an outreach call.
+    regex:
+      patterns:
+        - '\b(?:friend|sister|brother|daughter|son|wife|husband|partner|classmate|student|colleague|roommate|my (?:mom|mum|dad|mother|father|teen|teenager))\b[\s\S]{0,44}\b(?:says? he|says? she|told me|keeps saying|wants to die|talking about (?:killing|suicide|dying)|hurting (?:them|herself|himself)|cut (?:himself|herself|them))\b'
+        - '\b(?:showed me|sent me|posted|shared with me)\b[\s\S]{0,30}\b(?:pills?|tablets?|blades?|scars?|wrists?)\b'
+        - '\bhow (?:do|can|should) (?:i|we) (?:help|support|assist|save|get (?:her|him|them) help)\b[\s\S]{0,48}\b(?:suicide|suicidal|dying|kill (?:himself|herself|them)|self[- ]?harm|overdose)\b'
+        - '\b(?:suicide|overdose|self[- ]?harm)\b[\s\S]{0,32}\b(?:what (?:should|do) i|tonight|right now|do i do)\b'
+      boost: 0.55
+
+  - id: suicide_encouragement
+    name: "Encouraging somebody to kill themselves"
+    stage: stage1
+    category: self_harm
+    severity: critical
+    action: block
+    min_score: 0.55
+    description: >-
+      The mirror image of the crisis exemptions: telling a person to die is abuse, not
+      help-seeking, and the self-harm policy file is deliberately gentle. Blocking here keeps
+      the gentle default from becoming a hole. Deliberately regex-only, so it fires regardless
+      of what the classifier thinks about politeness.
+    regex:
+      patterns:
+        - "\\b(?:nobody|no one|not a single (?:one|person)) (?:would|will|cares|notices|misses|grieves)\\b[\\s\\S]{0,20}\\b(?:you|him|her|them|if you|when you|that you|about (?:you|it))\\b"
+        - "\\b(?:you should|should just|better just|why don.t you|go) (?:die|kys|end it|off yourself|kill yourself)\\b"
+        - "\\b(?:do (?:us|me|everyone|the world) a (?:favour|favor)|would (?:be|do) (?:us|everyone|the world) a (?:favour|favor))\\b[\\s\\S]{0,28}\\b(?:if you (?:die|were gone|killed yourself)|by dying|and die)\\b"
+        - '\b(?:kill|hang|shoot|poison|drown|jump off|end)\s+(?:your(?:self|selves)|myself|his|her|their|them|it)\b[\s\S]{0,24}\b(?:already|would|should|please|go ahead|better off|faster|hurry)\b'
+        - '\b(?:go (?:and )?(?:die|off yourself|kys)|kys|wyss|yswss)\b'
+        - '\b(?:nobody|no one|they|everyone|your (?:family|friends|parents|kids?)) (?:would|will|is|are) (?:be |do )?(?:better off|glad|happy|relieved|care|miss|notice|grieve)(?: if| that| you)?\b[\s\S]{0,32}\b(?:gone|dead|died|die|kill (?:you|yourself)|you (?:die|were dead|were gone)|were (?:dead|gone|here))\b'
+        - '\b(?:please|do us a favour|do me a favour|seriously)\b[\s\S]{0,28}\b(?:kill yourself|end it|die|off yourself)\b'
+        - '\b(?:here are|this is|use|try)\b[\s\S]{0,18}\b(?:methods?|ways?|instructions|guide)\b[\s\S]{0,24}\b(?:to (?:kill yourself|end it|suicide)|suicide)\b'
+      boost: 0.75
+    exceptions:
+      - '\b(?:how to (?:help|support|prevent|intervene)|suicide (?:prevention|hotline|risk|warning signs)|are you (?:okay|all right)|check (?:on|in on) (?:them|her|him))\b'
+
+  - id: self_harm_imminent_plan
+    name: "Stated plan to die, with timeframe or farewell"
+    stage: stage1
+    category: self_harm
+    severity: critical
+    action: block
+    min_score: 0.62
+    description: >-
+      The exception that keeps every self-harm softening above from becoming a hole: a plan with
+      a timeframe, a goodbye, or a request for means is not a person to talk to, it is a request
+      that must not be answered by a language model. Matching is bilingual because the corpus is.
+    regex:
+      patterns:
+        - '\b(?:tonight|tomorrow|this (?:weekend|afternoon|evening)|by (?:monday|friday|sunday|the weekend)|today|in (?:an hour|two hours|ten minutes))\b[\s\S]{0,36}\b(?:end (?:it|my life|myself)|do it|go through with (?:it|the plan)|take my (?:life|pills)|die for good|finish (?:it|myself))\b'
+        - '\b(?:this is (?:my|the) (?:last|final) (?:message|note|text|goodbye)|goodbye (?:everyone|forever|for the last time)|say goodbye|my (?:final|last) words)\b'
+        - '\b(?:how many|what (?:amount|number) of)\b[\s\S]{0,24}\b(?:tablets?|pills?|paracetamol|ibuprofen|sleeping (?:pills|aid)|insulin)\b[\s\S]{0,28}\b(?:to (?:die|kill myself|end it)|enough to (?:die|kill|end)|will (?:kill|be enough)|works?)\b'
+        - '\b(?:কাল|আজ|আগামিকা|আজ্কাল|আজ্কাল রাতে|কাল রাতে)\b[\s\S]{0,40}\b(?:সব কিছু শেষ|সব শেষ করে দেবো|জীবন শেষ|নিজে মার যাবো|মার যাবো|এটাই শেষ)\b'
+        - '\b(?:বিদায়|বিদায় জানানো|আমি আর নেই)\b'
+      boost: 0.8
+    exceptions:
+      - '\b(?:in (?:my|the) (?:novel|story|fiction|screenplay|poem|essay)|character says|line of dialogue)\b'
+      - '\b(?:suicide prevention|warning signs|what to (?:do|say) if someone|safety plan|means (?:restriction|counselling))\b'
+
+  - id: crisis_resources
+    name: Self-harm help-seeking gets crisis resources
+    stage: stage2
+    category: self_harm
+    severity: low
+    action: disclaimer
+    min_score: 0.3
+    description: >-
+      When Stage 1 flagged self-harm but did not block it (a person asking for help),
+      we attach helpline information instead of silencing them.
+    stage1:
+      categories: [self_harm]
+      min_score: 0.3
+      decisions: [pass, flag]
+      boost: 0.6
+    disclaimer: >-
+      If you are in danger or thinking about hurting yourself, please talk to someone
+      now: KaanchBCP helpline 106 (Bangladesh, 24/7, free) or emergency services 999.
+      You are not alone and this is worth a phone call.
+
+  - id: harassment_softener
+    name: Insults de-escalated by deterministic substitution
+    stage: stage2
+    category: harassment
+    severity: low
+    action: rewrite
+    min_score: 0.45
+    description: >-
+      Substitutions below run before any LLM call, so even offline the service
+      removes the sting without losing the sentence.
+    # require_all_clauses is the point of this policy: an insult word alone is not enough,
+    # because "my manager calls me an idiot" is a complaint about abuse, not abuse. Requiring a
+    # second-person/third-person target keeps the softener for real attacks and off reporters.
+    require_all_clauses: true
+    regex:
+      patterns:
+        - '\b(?:you(?:r|re)?|ur|u|he|she|they|this|that)\b[\s\S]{0,26}\b(?:idiot|moron|stupid|dumb|loser|worthless|useless|pathetic|garbage|trash)\b'
+        - '\b(?:idiot|moron|loser|trash|garbage|useless)\b[\s\S]{0,20}\b(?:like you|like him|like her|like them)\b'
+        - '\b(?:called|call|calling|says|said|told|tells)\s+(?:me|him|her|them|us)\s+(?:an?\s+)?(?:f-ing\s+)?(?:idiot|moron|loser|stupid|dumb|worthless|useless)\b'
+      boost: 0.45
+    lexicon:
+      terms:
+        en: [idiot, moron, stupid, dumb, loser, worthless, useless, pathetic, garbage, trash]
+        bn: [গাধা, বদমাইস, অকাজে, মূর্খ, হারামি]
+      boost: 0.4
+    rewrite_substitutions:
+      - pattern: '\b(?:you\s+are\s+|ur\s+|u\s+)?(?:an?\s+)?(?:complete\s+|total\s+|absolute\s+)?(?:f-ing\s+)?(?:idiot|moron|imbecile|cretin)\b'
+        replacement: "someone I strongly disagree with"
+        description: insult -> neutral phrasing
+      - pattern: '\b(?:stupid|dumb|idiotic|moronic)\b'
+        replacement: "ill-advised"
+        description: adjective neutralisation
+      - pattern: '\b(?:worthless|useless|pathetic|hopeless\s+case)\b'
+        replacement: "struggling"
+        description: dehumanising adjective
+      - pattern: '\b(?:garbage|trash|subhuman|vermin|roaches?)\b'
+        replacement: "[removed dehumanising term]"
+        description: drop dehumanising noun
+      - pattern: '(?:গাধা|বদমাইস|অকাজে|মূর্খ)'
+        replacement: "সহকর্মী"
+        description: Bangla insult -> neutral noun
+
+  - id: hate_speech_rewriter
+    name: Toxicity that can be salvaged (rewrite, not block)
+    stage: stage2
+    category: toxic
+    severity: low
+    action: rewrite
+    min_score: 0.62
+    description: >-
+      Mild profanity/insults that survived stage 1 in lenient mode get de-escalated
+      instead of blocked, which preserves the user's intent and the product UX.
+    llm_categories:
+      categories: [harassment, toxic, bullying]
+      min_score: 0.5
+      boost: 0.4
+    exceptions:
+      - '\b(?:please|thanks|could you|would you)\b'
+
+  # ===========================================================================
+  # STAGE 3 - output checks (run on the model's answer, fail closed)
+  # ===========================================================================
+  - id: financial_crime_solicitation
+    name: Fraud, counterfeiting and money laundering
+    stage: stage2
+    category: fraud
+    severity: high
+    action: block
+    min_score: 0.6
+    description: >-
+      Solicitation of an actionable financial crime. Questions about the *topic*
+      (how scams work, how to avoid them) are exempted - the difference is whether
+      the text asks for something to be produced or done, not whether it mentions crime.
+    regex:
+      patterns:
+        - '\b(?:defraud|cheat|swindle|rip off|scam| fleece)\b[\s\S]{0,44}\b(?:pensioners?|the elderly|elderly|customers?|investors?|donors?|bank|my (?:neighbours?|grandmother|grandmother|aunt)|classmates?)\b'
+        - '\b(?:launder|clean|layer)\b[\s\S]{0,24}\b(?:money|funds?|proceeds|cash)\b|\b(?:money[ -]laundering|placement[ -]layering[ -]integration)\b'
+        - '\b(?:forge|counterfeit|fake|replicate|print)\b[\s\S]{0,28}\b(?:notes?|bank ?drafts?|cheques?|checks?|currency|taka|dollars?|pass ?ports?|nid (?:cards?|numbers?)?|certificates?|degrees?|signatures?|deeds?|invoices?|receipts?)\b'
+        - '\b(?:advance[ -]?fee|419 scam|nigerian prince|wire (?:transfer )?fraud|invoice (?:fraud|redirection)|business email compromise|romance scam script)\b'
+        - '\b(?:money mule|mule (?:job|account|network)|cash ?out (?:service|business|network)|card ?ing|dumps? (?:and|with) pins?|cvv (?:shop|market)|bin attack)\b'
+        - '\b(?:write|draft|create|generate|send)\b[\s\S]{0,32}\b(?:phishing|spoofed|fake)\b[\s\S]{0,32}\b(?:email|sms|message|letter|page|form|script)\b'
+        - '\b(?:email|message|letter|sms|note|form|page)\b[\s\S]{0,52}\b(?:asking|requesting|to verify|need(?:s)? (?:you|them|customers?) to|requir\w* (?:you|them))\b[\s\S]{0,48}\b(?:password|otp|one[- ]time pin|cvv|card (?:number|details|info)|security (?:question|code|answer)|bank (?:details|information)|login (?:credentials|details))\b'
+        - '\b(?:impersonat\w+|pretend(?:ing)? to be|on behalf of|as if (?:it|you) (?:were|are)|from (?:the|your) (?:bank|irb|paypal|gmail|support|it (?:desk|support)|hr|police))\b[\s\S]{0,84}\b(?:password|otp|one[- ]time pin|cvv|card|login|verify your account|account (?:details|information)|transfer (?:the|some) money)\b'
+        - '\b(?:convincing|believable|realistic|undetectable)\b[\s\S]{0,40}\b(?:email|message|letter|sms|website|page)\b[\s\S]{0,60}\b(?:password|otp|cvv|credentials|bank|card|verify)\b'
+      boost: 0.7
+    exceptions:
+      - '\b(?:how (?:do|can) (?:i|we|my (?:staff|team|company)) (?:avoid|detect|prevent|report|recognise|recognize|spot|reduce)|security awareness|phishing (?:test|simulation|training)|my (?:staff|team) (?:need|should)|red flags)\b'
+      - '\b(?:in my (?:essay|thesis|novel|report|article)|definition|history of|statistics (?:on|about))\b'
+
+  - id: weapons_and_synthesis
+    name: Weapon manufacture and drug synthesis
+    stage: stage2
+    category: weapons
+    severity: critical
+    action: block
+    min_score: 0.55
+    description: >-
+      Zero-tolerance by design: unlike the fraud policy there is no exception list, because
+      "for a novel" is the most common wrapper for this request and the capability itself is
+      the harm. Journalism about a weapon programme is handled by the reviewer queue, not by
+      a regex exemption.
+    regex:
+      patterns:
+        - "\\b(?:বোমা|বম্বা|ভাটকারি|অস্ত্র|পাইপর)\\b[\\s\\S]{0,32}\\b(?:বান\\w*|তৈরি|প্রস্তুত|করতে চাই|চাই)\\b"
+        - '\b(?:make|build|construct|assemble|synthesize|synthesise|cook|prepare|produce|mix)\b[\s\S]{0,40}\b(?:a )?(?:bomb|explosive|pipe bomb|ied|molotov|napalm|white phosphorus|thermite|gas chamber|sarin|nerve (?:agent|gas)|ricin|anthrax|botulism|fentanyl (?:batch|at home)|meth(?:amphetamine)?|crystal meth|shaboo|mdma|ekstasy|lsd|heroin|oxycodone (?:at home)?)\b'
+        - '\b(?:how (?:do|can) (?:i|you|we)|(?:step by steps?|instructions?|guide|recipe|formula|tutorial))\b[\s\S]{0,48}\b(?:bomb|explosive|napalm|nerve agent|meth|fentanyl|poison|shank|silencer|ghost gun|3d printed (?:gun|firearm)|pipe gun|tazer|crossbow (?:with|lethal))\b'
+        - '\b(?:detonator|trigger (?:mechanism|assembly)|pressure cooker|acetone|precursor|red p|pseudoephedrine)\b[\s\S]{0,36}\b(?:bomb|explosive|extract|synthes|convert|recipe|meth)\b'
+        - '\b(?:make|manufacture|improvise)\b[\s\S]{0,28}\b(?:a )?(?:silencer|suppressor|switch (?:blade|knife)|zip(?:tie)? gun|ball bearing (?:slingshot|gun)|poison (?:dart|tip))\b'
+        - '(?:বোমা|ভুটো|রাইফেল|অস্ত্র)\b[\s\S]{0,32}(?:বানাই|তৈরি|প্রস্তুত|বনাই|করবো|করে)'
+      boost: 0.75
+
+  - id: self_harm_method
+    name: Self-harm method or concealment (zero tolerance)
+    stage: stage1
+    category: self_harm
+    severity: critical
+    action: block
+    min_score: 0.5
+    description: >-
+      Split out from the self_harm policy on purpose: that policy carries an exception list
+      so help-seeking and third-party concern can pass, and an exception list is exactly what
+      a method request must NOT have. This one has none.
+    regex:
+      patterns:
+        - '\b(?:how many|what (?:number|dose)|how much)\b[\s\S]{0,32}\b(?:pills?|tablets?|capsules?|paracetamol|ibuprofen|aspirin|insulin|sleeping (?:pills?|tablets?)|benzos?|alcohol|bleach|antifreeze)\b[\s\S]{0,40}\b(?:to (?:die|kill myself|end it)|be fatal|kill me|enough to (?:die|kill))\b'
+        - '\b(?:painless|most (?:effective|reliable|peaceful)|quick(?:est)?|guaranteed|foolproof|without (?:pain|suffering|getting caught))\b[\s\S]{0,36}\b(?:way|method|option|route|how)\b[\s\S]{0,40}\b(?:to (?:die|end (?:it|my life)|kill myself)|of (?:dying|suicide)|suicide)\b'
+        - '\b(?:hide|conceal|cover up|disguise|secret(?:ly)?)\b[\s\S]{0,32}\b(?:cuts?|scars?|bruises?|overdose|pills?|the (?:note|plan))\b'
+        - '\b(?:suicide (?:note|letter|kit|method|pill count|plan)|write (?:my|a) (?:goodbye|suicide) note)\b'
+        - '\b(?:(?:tonight|today|tomorrow)[\s\S]{0,28}(?:jump|tie (?:a )?(?:rope|cord)|take (?:all|my) (?:pills|tablets))|(?:jump|leap|step off|throw myself) (?:off|from|into)\b[\s\S]{0,28}\b(?:bridge|balcony|building|roof|train|tracks|cliff))\b'
+        - 'আত্মহত্যার? (?:উপায়|পদ্ধতি|ধাপ|কী খাব|কত গুলি)'
+      boost: 0.8
+
+  - id: output_pii_leak
+    name: Generated output contains PII
+    stage: stage3_output
+    category: pii_leak
+    severity: critical
+    action: block
+    min_score: 0.4
+    entities:
+      entities: [EMAIL_ADDRESS, PHONE_NUMBER, ID_NUMBER, CREDIT_CARD, NID_NUMBER, US_SSN]
+      min_count: 1
+      boost: 0.6
+    description: Stage 2 masked the input; if a name/address/ID resurfaces in the answer we drop the answer.
+
+  - id: output_system_prompt_leak
+    description: >-
+      Stage-3 guard: the generated answer must not contain the system prompt or tool configuration.
+    name: Generated output reveals internal instructions
+    stage: stage3_output
+    category: system_prompt_leak
+    severity: critical
+    action: block
+    min_score: 0.5
+    regex:
+      patterns:
+        - '(?:my (?:system prompt|hidden instructions|initial prompt) (?:is|says|reads)|i (?:was|am) (?:instructed|required) to (?:follow|obey)|the (?:guardrail|moderation) (?:system prompt|instructions) (?:are|is))'
+        - '(?:policies\.yaml|stage1_toxicity\.py|app/pipeline/prompts\.py|SYSTEM_PROMPT\s*=)'
+        - '(?:\{\s*"(?:toxicity|prompt_injection|jailbreak)"\s*:\s*0?\.\d+)'
+      boost: 0.6
+    exceptions:
+      - '\b(?:i (?:cannot|can''t) (?:share|reveal|disclose)|not allowed to (?:share|reveal))\b'
+
+  - id: output_unsafe_advice
+    description: >-
+      Stage-3 guard: even when the request was clean, an answer that hands over
+      instructions for harm (poison dosing, how to evade detection) is replaced.
+    name: Generated output gives actionable harmful steps
+    stage: stage3_output
+    category: unsafe_advice
+    severity: critical
+    action: block
+    min_score: 0.55
+    regex:
+      patterns:
+        - '(?:step \d[:.)]?\s*(?:mix|combine|heat|inject|swallow|measure|dissolve).{0,60}(?:bleach|fentanyl|insulin|rat poison|acid|mercury|potassium|cyanide))'
+        - '(?:here (?:is|''s) (?:the )?(?:exact|precise) (?:formula|recipe|amount|dosage).{0,40}(?:explode|kill|poison|overdose))'
+        - '(?:undetectable (?:poison|murder)|how to (?:get away with|avoid catching) (?:a murder|getting caught))'
+      boost: 0.7
+
+  - id: output_toxicity
+    description: >-
+      Stage-3 guard: the answer itself is scored, so a clean prompt cannot end in a toxic reply.
+    name: Generated output is itself toxic
+    stage: stage3_output
+    category: toxic_output
+    severity: high
+    action: block
+    min_score: 0.6
+    llm_categories:
+      categories: [hate, harassment, sexual, violence]
+      min_score: 0.65
+      boost: 0.5
