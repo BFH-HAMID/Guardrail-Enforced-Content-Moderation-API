@@ -1,0 +1,33 @@
+# local runtime state
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# databases and scratch storage (tests/data is committed on purpose - it is the eval corpus)
+*.db
+*.db-shm
+*.db-wal
+/data/
+/tmp/
+*.sqlite3
+
+# local config / secrets
+.env
+.env.*
+!.env.example
+*.key
+deploy/override*.yml
+
+# editor + OS noise
+.idea/
+.vscode/
+.DS_Store

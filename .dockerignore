@@ -1,0 +1,21 @@
+# Ship the runtime, not the checkout.
+.git
+.github
+.pytest_cache
+.ruff_cache
+.mypy_cache
+__pycache__
+**/__pycache__
+*.py[cod]
+.venv
+venv
+data
+*.db
+*.db-*
+tests
+!tests/data
+ui/.streamlit
+deploy/.env
+*.md
+!README.md
+LICENSE

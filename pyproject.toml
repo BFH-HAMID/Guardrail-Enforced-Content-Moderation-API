@@ -1,0 +1,104 @@
+[build-system]
+# Explicit, because this repo is a flat layout with several top-level dirs (app, ui, scripts, tests,
+# config, docs). setuptools' auto-discovery refuses to guess there, and "pip install -e .[dev]" is in
+# the README quickstart - CI caught that as an install failure the first time it ran.
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+# Only ``app`` is installable. ``scripts/`` stays a repo-local tool (it resolves config/policies.yaml
+# and tests/data/ relative to the checkout), so shipping it as an importable package would hand people
+# a tool whose default paths point into site-packages.
+include = ["app*"]
+
+[project]
+name = "guardrail-moderation-api"
+version = "1.0.0"
+description = "Guardrail-enforced content moderation API with a 3-stage Model Chain Prompting pipeline"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# Kept in sync with deploy/requirements.txt (the Dockerfile installs that one layer-cached).
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "SQLAlchemy>=2.0.30",
+  "aiosqlite>=0.20",          # dev/demo storage
+  "greenlet>=3.0",           # required by SQLAlchemy's async engine
+  "PyYAML>=6.0",             # policies.yaml
+  "httpx>=0.27",             # LLM providers + the eval harness
+  "prometheus-client>=0.20",  # /metrics
+  "python-multipart>=0.0.9",  # /logs CSV download form bodies
+]
+
+[project.optional-dependencies]
+postgres = ["asyncpg>=0.29"]
+# Layer-1 classifier. Optional on purpose: the rule layer must keep working with it missing.
+classifier = ["transformers>=4.44", "torch>=2.3"]
+pii = ["presidio-analyzer>=2.2"]
+ui = ["streamlit>=1.38", "pandas>=2.2", "plotly>=5.22"]
+dev = [
+  "pytest>=8.2",
+  "pytest-asyncio>=0.23",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "coverage>=7.6",
+]
+
+# No [project.scripts]: the CLI surface is ``python scripts/evaluate.py`` / ``scripts/why.py``, run
+# from a checkout, because they read config/policies.yaml and tests/data/ relative to the repo root.
+# A console script would resolve those paths against site-packages and mislead.
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers --durations=10"
+markers = [
+  "integration: exercises the HTTP app + database",
+  "slow: takes more than a second (skipped by default with -m 'not slow')",
+]
+filterwarnings = [
+  "ignore::DeprecationWarning:fastapi.*",
+  "ignore:Using `httpx` with `starlette.testclient` is deprecated.*",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/main.py", "ui/*", "*/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 1
+
+[tool.ruff]
+line-length = 160
+target-version = "py310"
+extend-exclude = [".venv", "data", "deploy"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF", "ASYNC", "S", "RET", "ARG"]
+ignore = [
+  "E501",    # long policy regex lines are clearer unwrapped
+  "S101",    # assert is how pytest works
+  "S104",    # 0.0.0.0 bind is required by containers/preview
+  "B008",    # FastAPI Depends() in defaults is the framework idiom
+  "RUF001",  # policy files intentionally contain non-ASCII (Bangla) text
+  "RUF002",
+  "RUF003",
+  "S105",    # "change-me-in-prod" defaults are deliberate placeholders in config
+  "SIM105",
+  "ARG001",
+  "ARG002",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "PLR2004"]
+"ui/*" = ["E402"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true

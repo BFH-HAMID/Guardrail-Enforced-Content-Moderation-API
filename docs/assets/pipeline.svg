@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <title id="t">Three-stage guardrail chain: input, stage 1 toxicity and injection, stage 2 policy and PII rewrite, stage 3 safe output, v1 envelope</title>
+  <desc id="d">Untrusted text is normalized, screened for toxicity and prompt injection, rewritten under declarative policy with PII masking, and its output guarded before a versioned envelope is returned. Any stage error or timeout fails closed to a block.</desc>
+
+  <defs>
+    <style>
+      .card  { fill:#161b22; stroke:#30363d; stroke-width:1.5; }
+      .ttl   { fill:#e6edf3; font-size:15.5px; font-weight:650; }
+      .sub   { fill:#8b949e; font-size:11.5px; }
+      .mono  { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; }
+      .kpi   { fill:#e6edf3; font-size:11.5px; }
+      .cap   { fill:#7d8590; font-size:11px; }
+      .edge  { stroke:#3d444d; stroke-width:2; fill:none; }
+      .flow  { stroke:#58a6ff; stroke-width:2; fill:none; stroke-dasharray:9 9; animation:dash 1.1s linear infinite; }
+      .bad   { stroke:#f85149; stroke-width:1.6; fill:none; stroke-dasharray:5 6; opacity:.85; animation:dash 2.2s linear infinite reverse; }
+      .dot   { fill:#58a6ff; animation:travel 5.4s cubic-bezier(.45,.05,.55,.95) infinite; }
+      .drop  { fill:#f85149; animation:fall 5.4s ease-in infinite; }
+      .s1 { stroke:#f85149; } .s2 { stroke:#d29922; } .s3 { stroke:#58a6ff; } .ok { stroke:#3fb950; }
+      .glow1 { animation:glow 5.4s ease-in-out infinite; }
+      .glow2 { animation:glow 5.4s ease-in-out .95s infinite; }
+      .glow3 { animation:glow 5.4s ease-in-out 2.4s infinite; }
+      .glow4 { animation:glow 5.4s ease-in-out 3.5s infinite; }
+      @keyframes dash  { to { stroke-dashoffset:-36; } }
+      @keyframes travel{ 0%{transform:translateX(0);opacity:0} 6%{opacity:1} 88%{opacity:1} 100%{transform:translateX(1078px);opacity:0} }
+      @keyframes fall  { 0%,52%{transform:translate(0,0);opacity:0} 58%{opacity:1} 78%{transform:translate(-6px,52px);opacity:0} 100%{opacity:0} }
+      @keyframes glow  { 0%,18%,100%{stroke-opacity:.35} 7%,9%{stroke-opacity:1} }
+      @media (prefers-reduced-motion: reduce) { .flow,.bad,.dot,.drop,.glow1,.glow2,.glow3,.glow4 { animation:none } }
+    </style>
+    <linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#58a6ff" stop-opacity=".0"/><stop offset=".5" stop-color="#58a6ff" stop-opacity=".55"/><stop offset="1" stop-color="#58a6ff" stop-opacity="0"/></linearGradient>
+  </defs>
+
+  <!-- header -->
+  <text x="24" y="34" fill="#e6edf3" font-size="19" font-weight="700">Guardrail-enforced moderation chain</text>
+  <text x="24" y="55" class="cap">one request · three independently guarded stages · one versioned envelope · fail-closed by construction</text>
+
+  <!-- input -->
+  <g>
+    <rect class="card" x="24" y="118" width="150" height="122" rx="12"/>
+    <text class="ttl" x="44" y="148">untrusted</text>
+    <text class="ttl" x="44" y="168">text</text>
+    <text class="sub" x="44" y="192">NFKC · homoglyphs</text>
+    <text class="sub" x="44" y="209">invisible chars</text>
+    <text class="sub" x="44" y="226">spaced letters fixed</text>
+  </g>
+
+  <!-- stage 1 -->
+  <g>
+    <rect class="card s1 glow1" x="214" y="106" width="230" height="146" rx="12"/>
+    <text class="mono" x="234" y="130" fill="#f85149">STAGE 1</text>
+    <text class="ttl" x="234" y="152">Toxicity + injection</text>
+    <text class="sub" x="234" y="174">weight-scored heuristics</text>
+    <text class="sub" x="234" y="191">classifier + LLM judge (opt)</text>
+    <text class="sub" x="234" y="208">fused → PASS / FLAG / BLOCK</text>
+    <text class="mono" x="234" y="232" fill="#7d8590">consensus: model alone → flag</text>
+  </g>
+
+  <!-- stage 2 -->
+  <g>
+    <rect class="card s2 glow2" x="484" y="106" width="230" height="146" rx="12"/>
+    <text class="mono" x="504" y="130" fill="#d29922">STAGE 2</text>
+    <text class="ttl" x="504" y="152">Policy + PII rewrite</text>
+    <text class="sub" x="504" y="174">46 declarative policies (YAML)</text>
+    <text class="sub" x="504" y="191">mask → substitute → re-scan</text>
+    <text class="sub" x="504" y="208">optional rewrite, validated</text>
+    <text class="mono" x="504" y="232" fill="#7d8590">exceptions: fiction · news · crisis</text>
+  </g>
+
+  <!-- stage 3 -->
+  <g>
+    <rect class="card s3 glow3" x="754" y="106" width="230" height="146" rx="12"/>
+    <text class="mono" x="774" y="130" fill="#58a6ff">STAGE 3</text>
+    <text class="ttl" x="774" y="152">Safe final output</text>
+    <text class="sub" x="774" y="174">passthrough | assistant answer</text>
+    <text class="sub" x="774" y="191">check: PII leak · prompt dump</text>
+    <text class="sub" x="774" y="208">jailbreak compliance language</text>
+    <text class="mono" x="774" y="232" fill="#7d8590">on failure → safe fallback</text>
+  </g>
+
+  <!-- output -->
+  <g>
+    <rect class="card ok glow4" x="1024" y="118" width="152" height="122" rx="12"/>
+    <text class="ttl" x="1044" y="148">v1</text>
+    <text class="ttl" x="1044" y="168">envelope</text>
+    <text class="sub" x="1044" y="192">status · safe_output</text>
+    <text class="sub" x="1044" y="209">summary · trace</text>
+    <text class="sub" x="1044" y="226">flags.degraded</text>
+  </g>
+
+  <!-- connectors -->
+  <path class="edge" d="M174 179 H214"/>
+  <path class="flow" d="M444 179 H484"/>
+  <path class="flow" d="M714 179 H754"/>
+  <path class="flow" d="M984 179 H1024"/>
+  <path class="edge" d="M174 179 H214" style="stroke-dasharray:none"/>
+  <line x1="180" y1="285" x2="1176" y2="285" stroke="url(#g)" stroke-width="2" opacity=".6"/>
+  <circle class="dot" cx="122" cy="179" r="4.5"/>
+
+  <!-- quarantine note over the input edge -->
+  <text class="cap" x="180" y="94">user text is data, never instructions — delimited, not deleted</text>
+
+  <!-- fail-closed branch -->
+  <path class="bad" d="M329 252 v22 h-96 v34"/>
+  <circle class="drop" cx="329" cy="252" r="4"/>
+  <g>
+    <rect x="150" y="300" width="360" height="58" rx="10" fill="#1c1315" stroke="#f85149" stroke-opacity=".55" stroke-width="1.2"/>
+    <text class="mono" x="170" y="323" fill="#f85149">FAIL CLOSED</text>
+    <text class="kpi" x="258" y="323">error, timeout, or bad verdict ⇒ blocked</text>
+    <text class="sub" x="170" y="344">no path returns <tspan class="mono" fill="#7ee787">allowed</tspan> when the guard could not run; clients see blocked.reason="moderation_error"</text>
+  </g>
+
+  <!-- reviewer queue + storage -->
+  <g>
+    <rect x="540" y="300" width="330" height="58" rx="10" fill="#131a24" stroke="#58a6ff" stroke-opacity=".45" stroke-width="1.2"/>
+    <text class="mono" x="560" y="323" fill="#58a6ff">AUDIT</text>
+    <text class="kpi" x="614" y="323">SQL row + per-stage trace + metrics</text>
+    <text class="sub" x="560" y="344">/explain · /logs/export.csv · no echo</text>
+  </g>
+  <g>
+    <rect x="890" y="300" width="286" height="58" rx="10" fill="#14191f" stroke="#d29922" stroke-opacity=".45" stroke-width="1.2"/>
+    <text class="mono" x="910" y="323" fill="#d29922">QUEUE</text>
+    <text class="kpi" x="972" y="323">flag ⇒ human review, not a wall</text>
+    <text class="sub" x="910" y="344">help-seeking gets resources, fiction gets a pass</text>
+  </g>
+</svg>
