@@ -31,7 +31,7 @@ NOTES = {
     "api_key_pepper": "different pepper = different digests, so a leaked DB cannot be rainbow-tabled.",
     "auth_enabled": "dev only. With it off, callers are `anonymous` and no FK is written.",
     "default_mode": "per-request `mode` overrides it; the preset only scales policy thresholds.",
-    "policies_path": "hot-reloaded on mtime change; `POST /admin/reload-policies` forces it.",
+    "policies_path": "resolved against the project root (cwd-independent); hot-reloaded on mtime change, `POST /admin/reload-policies` forces it.",
     "max_input_chars": "422 beyond this - truncating an input to *allow* it would silently drop evidence.",
     "stage1_consensus": "`both` requires model agreement before a model-only signal blocks; `any` trusts either layer.",
     "stage1_fail_closed_on_llm_error": "if the judge is configured and errors, the row is blocked with `moderation_error`.",
@@ -46,6 +46,22 @@ NOTES = {
     "hash_user_ids": "keeps `metadata.user_id` non-reversible in the audit row.",
     "log_request_bodies": "raw user text into application logs. Leave off.",
 }
+
+
+def _deabs(value: Any) -> Any:
+    """Render machine-independent paths.
+
+    ``policies_path`` defaults to an absolute path resolved from the repo root, which is correct at
+    runtime (the service finds its policies whatever the cwd) but wrong in a committed table: the
+    generated doc then carries whoever ran the generator's directory, and CI's checkout lives somewhere
+    else - which is exactly how this repo's first green run broke.
+    """
+    text = str(value)
+    root = str(ROOT)
+    if text.startswith(root):
+        rel = text[len(root):].lstrip("/" + chr(92))
+        return Path("./" + rel) if rel else Path(".")
+    return value
 
 
 def _fmt(value: Any) -> str:
@@ -70,7 +86,7 @@ def render() -> str:
     ]
     for name, field in fields.items():
         env = f"GUARD_{name.upper()}"
-        default = field.default
+        default = _deabs(field.default)
         if callable(default) or str(default) == "PydanticUndefined":
             factory = getattr(field, "default_factory", None)
             default = factory() if factory else ""

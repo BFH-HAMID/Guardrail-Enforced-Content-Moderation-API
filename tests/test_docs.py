@@ -162,18 +162,38 @@ def test_relative_links_resolve() -> None:
 
 
 def test_configuration_table_is_current() -> None:
-    """docs/CONFIGURATION.md's generated block must match the live Settings class."""
+    """docs/CONFIGURATION.md's generated block must match the live Settings class.
+
+    Run with a deliberately polluted environment: the table documents *defaults*, so it must not move
+    because CI or an operator exported GUARD_* vars. The first run of this repo's CI failed exactly
+    that way - one generated default is an absolute path under the checkout.
+    """
+    import os
     import subprocess
     import sys
 
+    env = {**os.environ, "GUARD_ENVIRONMENT": "dev", "GUARD_POLICIES_PATH": "/elsewhere/policies.yaml", "GUARD_LOG_LEVEL": "DEBUG"}
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "gen_config_doc.py"), "--check"],
         cwd=ROOT,
         capture_output=True,
         text=True,
         timeout=120,
+        env=env,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_docs_carry_no_build_machine_paths() -> None:
+    """A generated doc that embeds /home/<someone>/ is wrong for every other checkout."""
+    prefixes = ("/home/", "/Users/", "/workspace/", "/actions-runner/", "/tmp/")
+    offenders = []
+    for path in [ROOT / "README.md", ROOT / "EVALUATION_REPORT.md", *sorted((ROOT / "docs").glob("*.md")), ROOT / "deploy" / "README.md"]:
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            hit = next((prefix for prefix in prefixes if prefix in line), None)
+            if hit:
+                offenders.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()[:90]}")
+    assert not offenders, "absolute build-machine paths in docs:\n" + "\n".join(offenders[:6])
 
 
 def test_dockerfile_copies_only_files_that_exist() -> None:

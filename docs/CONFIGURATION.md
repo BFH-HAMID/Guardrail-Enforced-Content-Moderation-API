@@ -49,7 +49,7 @@ python scripts/gen_config_doc.py --check    # what CI runs
 | `GUARD_MAX_METADATA_KEY_CHARS` | `64` | — |
 | `GUARD_MAX_METADATA_VALUE_CHARS` | `256` | — |
 | `GUARD_DEFAULT_MODE` | `balanced` | per-request `mode` overrides it; the preset only scales policy thresholds. |
-| `GUARD_POLICIES_PATH` | `/home/user/Guardrail-Enforced-Content-Moderation-API/conf…` | hot-reloaded on mtime change; `POST /admin/reload-policies` forces it. |
+| `GUARD_POLICIES_PATH` | `config/policies.yaml` | resolved against the project root (cwd-independent); hot-reloaded on mtime change, `POST /admin/reload-policies` forces it. |
 | `GUARD_PIPELINE_REQUEST_TIMEOUT_S` | `60.0` | the ceiling: past it, the response is fail-closed blocked, never a pass. |
 | `GUARD_STAGE1_TIMEOUT_S` | `20.0` | — |
 | `GUARD_STAGE2_TIMEOUT_S` | `25.0` | — |
