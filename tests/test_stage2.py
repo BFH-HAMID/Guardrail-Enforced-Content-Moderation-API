@@ -182,7 +182,8 @@ def test_policies_with_a_stage1_clause_need_the_upstream_result(bundle) -> None:
     This is the trap that makes ``scripts/why.py`` under-report: evaluating a stage1-clause
     policy without ``stage1_result`` is not a smaller verdict, it is a different question.
     """
-    from app.pipeline.base import Decision as _Decision, Stage1Result as _Stage1
+    from app.pipeline.base import Decision as _Decision
+    from app.pipeline.base import Stage1Result as _Stage1
 
     staged = next(
         (

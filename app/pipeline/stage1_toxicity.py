@@ -34,7 +34,7 @@ from app.core.logging import get_logger
 from app.core.text import detect_payloads
 from app.pipeline.base import Decision, PipelineContext, Scorecard, Stage, Stage1Result, Violation
 from app.pipeline.injection import ClassifierOutcome, InjectionHeuristics, get_classifier
-from app.pipeline.llm import ChatMessage, LLMError, LLMNotConfigured, estimate_tokens, extract_json
+from app.pipeline.llm import ChatMessage, LLMError, LLMNotConfigured, estimate_tokens
 from app.pipeline.policy import RuleHit
 from app.pipeline.prompts import build_judge_prompt
 
@@ -461,7 +461,7 @@ class Stage1ToxicityStage(Stage):
             scores=Scorecard(),
         )
 
-    async def execute(self, ctx: PipelineContext) -> Stage1Result:  # noqa: D401 - wrapping for fail-closed typing
+    async def execute(self, ctx: PipelineContext) -> Stage1Result:
         result = await super().execute(ctx)
         if isinstance(result, Stage1Result):
             return result

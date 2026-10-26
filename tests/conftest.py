@@ -13,6 +13,7 @@ import shutil
 import tempfile
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -20,9 +21,11 @@ _TMP = Path(tempfile.mkdtemp(prefix="guard-tests-"))
 _BOOTSTRAP_KEY = "gmk_testkeyaaaaaaaaaaaaaaaaaaaaaaaaaa1"
 _SECOND_KEY = "gmk_testkeybbbbbbbbbbbbbbbbbbbbbbbbbbbb2"
 
+# Every setting the suite depends on is pinned here. The loader also reads ``./.env`` at the project
+# root, but process env wins over the file in pydantic-settings - so a developer's local .env cannot
+# change a verdict, and there is no "GUARD_ENV_FILE" knob to point elsewhere (there never was).
 os.environ.update(
     {
-        "GUARD_ENV_FILE": str(_TMP / "does-not-exist.env"),
         "GUARD_DATABASE_URL": f"sqlite+aiosqlite:///{_TMP / 'test.db'}",
         "GUARD_AUTH_ENABLED": "true",
         "GUARD_API_KEY_PEPPER": "test-pepper",
@@ -42,7 +45,7 @@ os.environ.update(
     }
 )
 
-from app.core.config import reload_settings  # noqa: E402
+from app.core.config import reload_settings
 
 reload_settings()
 
@@ -94,10 +97,10 @@ def anyio_backend() -> str:
 async def prepared_app() -> AsyncIterator[object]:
     """App with schema created and bootstrap keys seeded (no lifespan needed)."""
     from app.api.auth import bootstrap_keys_from_settings, clear_auth_cache
+    from app.core.config import get_settings
     from app.db.session import init_db
     from app.main import create_app
     from app.pipeline.orchestrator import ModerationPipeline
-    from app.core.config import get_settings
 
     await init_db()
     await bootstrap_keys_from_settings()
@@ -108,10 +111,8 @@ async def prepared_app() -> AsyncIterator[object]:
 
 
 @pytest.fixture
-async def client(prepared_app: object) -> AsyncIterator[Any]:  # type: ignore[name-defined]  # noqa: F821
+async def client(prepared_app: object) -> AsyncIterator[Any]:
     import httpx
-
-    from app.core.config import get_settings
 
     transport = httpx.ASGITransport(app=prepared_app)  # type: ignore[attr-defined]
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver", timeout=30.0) as http_client:
@@ -119,7 +120,7 @@ async def client(prepared_app: object) -> AsyncIterator[Any]:  # type: ignore[na
 
 
 @pytest.fixture
-async def anon_client(prepared_app: object) -> AsyncIterator[Any]:  # type: ignore[name-defined]  # noqa: F821
+async def anon_client(prepared_app: object) -> AsyncIterator[Any]:
     """Client without an API key header."""
     import httpx
 

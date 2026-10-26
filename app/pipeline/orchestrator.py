@@ -22,7 +22,8 @@ Stages are a list, so a new stage is one line here plus a subclass.
 from __future__ import annotations
 
 import time
-from typing import Any, Iterable, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
@@ -40,7 +41,7 @@ from app.pipeline.base import (
 )
 from app.pipeline.stage1_toxicity import Stage1ToxicityStage
 from app.pipeline.stage2_policy import Stage2PolicyStage
-from app.pipeline.stage3_generation import Stage3GenerationStage, SAFE_FALLBACKS
+from app.pipeline.stage3_generation import SAFE_FALLBACKS, Stage3GenerationStage
 
 log = get_logger(__name__)
 

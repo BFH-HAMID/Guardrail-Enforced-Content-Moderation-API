@@ -135,7 +135,7 @@ class LogContext:
         self.fields = fields
         self.started = 0.0
 
-    def __enter__(self) -> "LogContext":
+    def __enter__(self) -> LogContext:
         self.started = time.perf_counter()
         return self
 

@@ -267,7 +267,7 @@ async def test_handler_crash_fails_closed_with_a_retryable_envelope(client, auth
     caller's content, and 503 + Retry-After tells a well-behaved client to back off and try again.
     """
 
-    async def explode(*args, **kwargs):  # noqa: ANN002, ANN003
+    async def explode(*args, **kwargs):
         raise RuntimeError("moderator on fire")
 
     original = prepared_app.state.pipeline.run
@@ -293,3 +293,44 @@ async def test_invalid_mode_is_rejected(client, auth_headers, bad_mode: str) -> 
     assert response.status_code in {200, 422}
     if response.status_code == 200:  # coerced to balanced rather than trusted
         assert response.json()["policy"]["mode"] == "balanced"
+
+
+async def test_retention_loop_survives_a_failing_sweep_and_shutdown(monkeypatch) -> None:
+    """The sweep task lives as long as the process, so both of its exit paths must be clean.
+
+    ``retention_loop`` used to reference ``asyncio`` in its ``except`` clause while the module only
+    imported it inside a helper - so a routine shutdown raised NameError from inside the handler and
+    buried the real reason. This pins the handler order: storage failures are logged and looped over,
+    cancellation stops the task without an error.
+    """
+    import asyncio
+    import contextlib
+
+    from app.db import session as session_module
+
+    attempts = 0
+
+    async def failing_purge(*_args, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("storage unavailable")
+
+    monkeypatch.setattr(session_module, "purge_expired_logs", failing_purge)
+    stop = {"value": False}
+    task = asyncio.create_task(session_module.retention_loop(lambda: stop["value"], interval_s=0.01))
+    try:
+        await asyncio.sleep(0.06)
+        assert attempts >= 1, "a failing sweep must at least be attempted"
+        task.cancel()  # what app shutdown does
+        try:
+            await asyncio.wait_for(task, timeout=2)
+        except asyncio.CancelledError:
+            pass  # propagating the cancellation is a clean stop
+        except Exception as exc:
+            raise AssertionError(f"retention loop died with {exc!r} instead of stopping cleanly") from exc
+    finally:
+        stop["value"] = True
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(BaseException):
+                await task

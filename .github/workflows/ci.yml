@@ -57,9 +57,13 @@ jobs:
           print(f"ok: {len(policies)} policies, version {doc['version']}")
           PY
 
-      - name: ruff
-        run: ruff check app scripts ui tests
-        continue-on-error: true   # style is advisory; correctness gates below are not
+      - name: lint (correctness gated, style advisory)
+        run: |
+          # F-codes and syntax errors are defects, not taste: an undefined name inside an `except`
+          # clause (found this way, see test_retention_loop_survives_a_failing_sweep_and_shutdown) or
+          # a shadowed import will bite in production. Readability rules are printed for humans.
+          ruff check app scripts ui tests --select F,E9 --output-format=concise
+          ruff check app scripts ui tests --statistics || true
 
       - name: pytest (unit + API + quality gates)
         run: python -m pytest -q --maxfail=25
@@ -86,12 +90,16 @@ jobs:
         env:
           GUARD_BOOTSTRAP_API_KEYS: ci-smoke-key-0123456789abcdef
           GUARD_API_KEY_PEPPER: ci-pepper
+          GUARD_DATABASE_URL: sqlite+aiosqlite:///./data/ci.db
         run: |
+          # the default database_url is a file under ./data, which git does not carry - and a DB that
+          # cannot be opened at startup must not be able to hide a routing or envelope regression
+          mkdir -p data
           python -m uvicorn app.main:app --port 8000 &
           server=$!
           trap 'kill $server 2>/dev/null' EXIT
           for i in $(seq 1 40); do
-            curl -fsS localhost:8000/health >/dev/null && break
+            curl -fsS localhost:8000/health >/dev/null 2>&1 && break
             sleep 1
           done
           curl -fsS localhost:8000/health | python -m json.tool | head -8

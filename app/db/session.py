@@ -8,6 +8,7 @@ a file-based SQLite URL is created automatically because ``./data/`` is not in t
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -16,7 +17,6 @@ from typing import Any
 
 from sqlalchemy import event, func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import declarative_base  # re-exported for tests
 
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
@@ -188,8 +188,6 @@ async def retention_loop(should_stop: Any, *, interval_s: float) -> None:
 
 
 async def _sleep_or_stop(should_stop: Any, seconds: float) -> None:
-    import asyncio
-
     steps = max(1, int(seconds // 5))
     for _ in range(steps):
         if should_stop():

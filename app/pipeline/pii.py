@@ -25,11 +25,11 @@ found it so the trace stays honest about *why* something was masked.
 
 from __future__ import annotations
 
-import ipaddress
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, Iterable
+from typing import Any
 
 from app.core.logging import get_logger
 
@@ -156,7 +156,7 @@ class PiiSpan:
             "source": self.source,
         }
 
-    def overlaps(self, other: "PiiSpan") -> bool:
+    def overlaps(self, other: PiiSpan) -> bool:
         return self.start < other.end and other.start < self.end
 
 

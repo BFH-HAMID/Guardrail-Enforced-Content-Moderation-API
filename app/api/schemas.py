@@ -56,7 +56,7 @@ class Metadata(BaseModel):
     client_version: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
-    def _bound_extras(self) -> "Metadata":
+    def _bound_extras(self) -> Metadata:
         settings = get_settings()
         extra = getattr(self, "model_extra", None) or {}
         if len(extra) > settings.max_metadata_items:

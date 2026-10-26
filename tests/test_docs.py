@@ -134,7 +134,7 @@ def test_demo_gif_still_matches_the_api() -> None:
     import subprocess
     import sys
 
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "render_demo_gif.py"), "--check"],
         cwd=ROOT,
         capture_output=True,
@@ -166,7 +166,7 @@ def test_configuration_table_is_current() -> None:
     import subprocess
     import sys
 
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "gen_config_doc.py"), "--check"],
         cwd=ROOT,
         capture_output=True,

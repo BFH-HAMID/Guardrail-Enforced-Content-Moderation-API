@@ -40,7 +40,7 @@ from app.pipeline.base import (
     Violation,
 )
 from app.pipeline.llm import ChatMessage, LLMError, LLMNotConfigured
-from app.pipeline.pii import PiiDetector, PiiSpan, apply_masks
+from app.pipeline.pii import PiiDetector, apply_masks
 from app.pipeline.policy import RuleHit
 from app.pipeline.prompts import build_rewrite_prompt
 
@@ -145,7 +145,6 @@ class Stage2PolicyStage(Stage):
         changed = bool(mask_actions)
 
         # ---- 5. rewrite ------------------------------------------------------
-        rewrite_hits = [h for h in hits if h.action in {"rewrite", "disclaimer"} and h.action != "disclaimer"]
         disclaimers: list[str] = []
         for hit in [h for h in hits if h.action == "disclaimer"]:
             policy = bundle.get(hit.policy_id)
@@ -545,7 +544,7 @@ class Stage2PolicyStage(Stage):
         if not getattr(self.settings, "use_guardrails", False):
             return False
         try:  # pragma: no cover - optional dependency
-            import guardrails  # type: ignore[import-not-found]
+            import guardrails  # noqa: F401  # type: ignore[import-not-found]
 
             return True
         except ImportError:

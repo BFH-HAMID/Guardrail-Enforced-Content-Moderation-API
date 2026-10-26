@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import datetime as dt
 import statistics
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError

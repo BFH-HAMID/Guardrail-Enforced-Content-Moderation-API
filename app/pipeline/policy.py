@@ -179,7 +179,7 @@ class Policy(BaseModel):
     rewrite_substitutions: list[SubstitutionRule] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _at_least_one_clause(self) -> "Policy":
+    def _at_least_one_clause(self) -> Policy:
         clauses = [self.regex, self.lexicon, self.classifier, self.llm_categories, self.obfuscation, self.payloads, self.script, self.entities, self.stage1]
         if self.action != "allow" and all(c is None for c in clauses) and not self.pii_entities:
             raise ValueError(f"policy {self.id!r} has no matching clause; it could never fire")

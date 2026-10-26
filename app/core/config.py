@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = ""
 
     # ------------------------------------------------------------------ server
-    host: str = "0.0.0.0"  # noqa: S104 - container/preview friendly default
+    host: str = "0.0.0.0"
     port: int = 8000
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
     cors_allow_credentials: bool = False
@@ -206,7 +206,7 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def _safety_invariants(self) -> "Settings":
+    def _safety_invariants(self) -> Settings:
         if self.pipeline_request_timeout_s <= 0:
             raise ValueError("pipeline_request_timeout_s must be > 0 (fail-closed needs a bounded wait)")
         stage_sum = self.stage1_timeout_s + self.stage2_timeout_s + self.stage3_timeout_s

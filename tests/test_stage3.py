@@ -135,7 +135,7 @@ async def test_failing_output_check_replaces_the_answer_with_a_safe_fallback() -
     stage.mode = "assistant"
     original_generate = stage._generate
 
-    async def fake_generate(ctx_, sanitized):  # noqa: ANN001, ANN002
+    async def fake_generate(ctx_, sanitized):
         return leaked, {"prompt_tokens": 10, "completion_tokens": 8, "estimated_cost_usd": 0.0}, "local", "stub", 1
 
     stage._generate = fake_generate  # type: ignore[method-assign]
@@ -176,7 +176,7 @@ def _stub_policy_hits(stage: Stage3GenerationStage, monkeypatch, *, policy_id: s
     """
     calls = {"count": 0}
 
-    def fake_evaluate(self, **kwargs):  # noqa: ANN001, ANN003, ARG002
+    def fake_evaluate(self, **kwargs):
         calls["count"] += 1
         return [_FakeHit(policy_id=policy_id, category=category)]
 

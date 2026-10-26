@@ -40,8 +40,8 @@ from app.api.auth import AuthContext, authenticate, bootstrap_keys_from_settings
 from app.api.schemas import (
     ApiKeyCreateRequest,
     ApiKeyCreateResponse,
-    EvaluateRequest,
     ErrorResponse,
+    EvaluateRequest,
     HealthResponse,
     LogListResponse,
     ModerateRequest,

@@ -46,7 +46,7 @@ def test_log_call_count_is_sane() -> None:
 
 async def test_bootstrap_keys_are_idempotent_and_log_at_info(caplog: pytest.LogCaptureFixture) -> None:
     """The documented cold start, exercised at the log level production actually uses."""
-    from app.api.auth import bootstrap_keys_from_settings, clear_auth_cache
+    from app.api.auth import bootstrap_keys_from_settings
     from app.db.session import init_db
 
     await init_db()
@@ -60,7 +60,6 @@ async def test_bootstrap_keys_are_idempotent_and_log_at_info(caplog: pytest.LogC
 
 async def test_startup_logging_survives_every_level(caplog: pytest.LogCaptureFixture) -> None:
     """Boot the service at DEBUG/INFO/WARNING: no log call may be level-dependent in a way that raises."""
-    import asyncio
 
     from app.main import create_app
 

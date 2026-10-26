@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -31,7 +31,6 @@ from starlette.responses import JSONResponse, RedirectResponse, Response
 from app.api import routes
 from app.api.auth import bootstrap_keys_from_settings
 from app.api.middleware import AccessLogMiddleware, RequestIdMiddleware, SecurityHeadersMiddleware, TimeoutMiddleware
-from app.api.schemas import ErrorResponse
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.monitoring.metrics import get_metrics

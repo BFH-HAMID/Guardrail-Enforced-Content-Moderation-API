@@ -4,7 +4,7 @@
   "rows_evaluated": 33,
   "classifier": true,
   "llm_available": null,
-  "generated_at": "2026-10-26T03:45:24Z",
+  "generated_at": "2026-10-26T03:56:45Z",
   "results": {
     "balanced": {
       "mode": "balanced",
@@ -35,13 +35,13 @@
       },
       "fail_closed_rows": 0,
       "pipeline_latency_ms": {
-        "p50": 66.15,
-        "p95": 130.46,
-        "p99": 241.91,
-        "max": 241.91,
-        "mean": 76.37
+        "p50": 64.56,
+        "p95": 123.94,
+        "p99": 233.69,
+        "max": 233.69,
+        "mean": 73.82
       },
-      "wall_seconds": 0.45,
+      "wall_seconds": 0.43,
       "status_distribution": {
         "allowed": 20,
         "blocked": 11,
@@ -198,7 +198,7 @@
           "pii_left": [],
           "masking_ok": true,
           "fidelity_ok": true,
-          "latency_ms": 130.46,
+          "latency_ms": 123.93,
           "fail_closed": false
         },
         {
@@ -227,7 +227,7 @@
           "pii_left": [],
           "masking_ok": true,
           "fidelity_ok": true,
-          "latency_ms": 58.92,
+          "latency_ms": 60.27,
           "fail_closed": false
         },
         {
@@ -257,7 +257,7 @@
           "pii_left": [],
           "masking_ok": true,
           "fidelity_ok": true,
-          "latency_ms": 23.59,
+          "latency_ms": 34.51,
           "fail_closed": false
         },
         {
@@ -286,7 +286,7 @@
           "pii_left": [],
           "masking_ok": true,
           "fidelity_ok": true,
-          "latency_ms": 59.68,
+          "latency_ms": 59.93,
           "fail_closed": false
         },
         {
@@ -315,7 +315,7 @@
           "pii_left": [],
           "masking_ok": true,
           "fidelity_ok": true,
-          "latency_ms": 59.47,
+          "latency_ms": 59.58,
           "fail_closed": false
         },
         {
@@ -344,7 +344,7 @@
           "pii_left": [],
           "masking_ok": true,
           "fidelity_ok": true,
-          "latency_ms": 70.98,
+          "latency_ms": 64.56,
           "fail_closed": false
         },
         {
@@ -372,7 +372,7 @@
           "pii_left": [],
           "masking_ok": true,
           "fidelity_ok": true,
-          "latency_ms": 71.17,
+          "latency_ms": 70.05,
           "fail_closed": false
         },
         {
@@ -400,7 +400,7 @@
           "pii_left": [],
           "masking_ok": true,
           "fidelity_ok": true,
-          "latency_ms": 81.9,
+          "latency_ms": 78.9,
           "fail_closed": false
         },
         {
@@ -428,7 +428,7 @@
           "pii_left": [],
           "masking_ok": true,
           "fidelity_ok": true,
-          "latency_ms": 66.15,
+          "latency_ms": 69.39,
           "fail_closed": false
         },
         {
@@ -459,7 +459,7 @@
           "pii_left": [],
           "masking_ok": true,
           "fidelity_ok": true,
-          "latency_ms": 37.89,
+          "latency_ms": 32.75,
           "fail_closed": false
         },
         {
@@ -493,7 +493,7 @@
           "pii_left": [],
           "masking_ok": true,
           "fidelity_ok": true,
-          "latency_ms": 40.37,
+          "latency_ms": 31.6,
           "fail_closed": false
         },
         {
@@ -521,7 +521,7 @@
           "pii_left": [],
           "masking_ok": true,
           "fidelity_ok": true,
-          "latency_ms": 57.06,
+          "latency_ms": 54.6,
           "fail_closed": false
         }
       ],

@@ -123,7 +123,7 @@ async def test_trace_is_always_built_but_only_shipped_on_request() -> None:
 async def test_stage_crash_fails_closed_instead_of_passing(monkeypatch: pytest.MonkeyPatch) -> None:
     pipeline = ModerationPipeline(get_settings())
 
-    async def boom(ctx):  # noqa: ANN001
+    async def boom(ctx):
         raise RuntimeError("stage2 exploded")
 
     monkeypatch.setattr(pipeline.stages[1], "_run", boom)
@@ -141,7 +141,7 @@ async def test_pipeline_timeout_fails_closed(monkeypatch: pytest.MonkeyPatch) ->
     settings = get_settings().model_copy(update={"pipeline_request_timeout_s": 0.05})
     pipeline = ModerationPipeline(settings)
 
-    async def never_ends(self, ctx):  # noqa: ANN001, ANN002, ARG001
+    async def never_ends(self, ctx):
         await asyncio.sleep(5)
         raise AssertionError("unreachable")
 

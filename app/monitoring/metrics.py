@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from app.core.logging import get_logger
 
@@ -48,7 +49,7 @@ SEVERITY_LABELS = ("info", "low", "medium", "high", "critical")
 class _NoopMetric:
     """Stand-in used when prometheus_client is unavailable."""
 
-    def labels(self, *_a: Any, **_k: Any) -> "_NoopMetric":
+    def labels(self, *_a: Any, **_k: Any) -> _NoopMetric:
         return self
 
     def inc(self, *_a: Any, **_k: Any) -> None:

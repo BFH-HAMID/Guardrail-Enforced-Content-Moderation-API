@@ -35,7 +35,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from scripts.dataset_corpus import (  # noqa: E402
+from scripts.dataset_corpus import (
     CATEGORY_BY_FAMILY,
     FAMILIES,
     expand_markers,

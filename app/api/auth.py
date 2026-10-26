@@ -19,8 +19,9 @@ credential, and each increments its own Prometheus counter.
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security.api_key import APIKeyHeader, APIKeyQuery

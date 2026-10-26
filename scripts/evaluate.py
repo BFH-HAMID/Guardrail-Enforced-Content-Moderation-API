@@ -29,7 +29,7 @@ import os
 import statistics
 import sys
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +37,8 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from app.post.formatter import format_response  # noqa: E402
-from scripts.generate_dataset import load_dataset  # noqa: E402
+from app.post.formatter import format_response
+from scripts.generate_dataset import load_dataset
 
 DEFAULT_DATASET = _ROOT / "tests" / "data" / "moderation_testset.jsonl"
 

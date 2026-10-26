@@ -67,7 +67,7 @@ class ApiKey(Base):
     request_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     #: cascade is disabled on delete: revoking a key must not destroy its audit trail
-    logs: Mapped[list["ModerationLog"]] = relationship(
+    logs: Mapped[list[ModerationLog]] = relationship(
         "ModerationLog",
         foreign_keys="ModerationLog.api_key_id",
         primaryjoin="ApiKey.key_id == foreign(ModerationLog.api_key_id)",
@@ -134,7 +134,7 @@ class ModerationLog(Base):
 
     retention_expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
-    violations: Mapped[list["ModerationViolationRow"]] = relationship(
+    violations: Mapped[list[ModerationViolationRow]] = relationship(
         back_populates="log", cascade="all, delete-orphan", passive_deletes=True, lazy="selectin"
     )
 
@@ -201,7 +201,7 @@ class ModerationViolationRow(Base):
     excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow, index=True)
 
-    log: Mapped["ModerationLog"] = relationship(back_populates="violations")
+    log: Mapped[ModerationLog] = relationship(back_populates="violations")
 
     __table_args__ = (Index("ix_violations_category_created", "category", "created_at"),)
 

@@ -22,9 +22,9 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from app.core.config import get_settings  # noqa: E402
-from app.core.text import build_detection_view, sanitize_text  # noqa: E402
-from app.pipeline.policy import get_policy_bundle  # noqa: E402
+from app.core.config import get_settings
+from app.core.text import build_detection_view, sanitize_text
+from app.pipeline.policy import get_policy_bundle
 
 
 def explain(text: str, *, mode: str = "balanced", with_pipeline: bool = True) -> dict[str, Any]:

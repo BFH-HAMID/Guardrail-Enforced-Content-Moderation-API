@@ -29,7 +29,7 @@ class ModerationMode(str, Enum):
     LENIENT = "lenient"
 
     @classmethod
-    def coerce(cls, value: Any) -> "ModerationMode":
+    def coerce(cls, value: Any) -> ModerationMode:
         if isinstance(value, cls):
             return value
         try:
@@ -360,7 +360,7 @@ class Stage(ABC):
     #: flag documents intent for stages that could legitimately be optional)
     fail_closed: bool = True
 
-    def __init__(self, settings: "Settings | None" = None, *, timeout_s: float | None = None) -> None:
+    def __init__(self, settings: Settings | None = None, *, timeout_s: float | None = None) -> None:
         from app.core.config import get_settings
 
         self.settings = settings or get_settings()
@@ -370,7 +370,7 @@ class Stage(ABC):
         return self.settings.stage1_timeout_s
 
     @property
-    def policy_bundle(self) -> "PolicyBundle":
+    def policy_bundle(self) -> PolicyBundle:
         from app.pipeline.policy import get_policy_bundle
 
         return get_policy_bundle(self.settings.policies_file)

@@ -31,8 +31,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import pandas as pd  # noqa: E402
-import streamlit as st  # noqa: E402
+import pandas as pd
+import streamlit as st
 
 STATUS_COLORS = {"allowed": "#2e7d32", "rewritten": "#f9a825", "blocked": "#c62828"}
 EXAMPLES = {
@@ -47,7 +47,7 @@ EXAMPLES = {
 
 
 @st.cache_resource(show_spinner="building pipeline")
-def _pipeline():  # noqa: ANN201, D401
+def _pipeline():
     from app.pipeline.orchestrator import get_pipeline
 
     return get_pipeline()
@@ -230,7 +230,7 @@ def _corpus_tab() -> None:
                 )
 
 
-def main() -> None:  # noqa: D401 - streamlit entrypoint
+def main() -> None:
     st.set_page_config(page_title="Guardrail reviewer console", page_icon="🛡️", layout="wide")
     st.title("🛡️ Guardrail reviewer console")
     st.caption("3-stage chain: toxicity/injection → policy + PII rewrite → safe output. Same code path as the service.")
@@ -270,7 +270,7 @@ def main() -> None:  # noqa: D401 - streamlit entrypoint
                 else:
                     body = _run_in_process(text, mode, include_trace, return_reasoning)
                 st.session_state["guard_last"] = {"text": text, "mode": mode, "body": body}
-            except Exception as exc:  # noqa: BLE001 - surfaced in the UI on purpose
+            except Exception as exc:
                 st.error(f"{type(exc).__name__}: {exc}")
                 return
         last = st.session_state["guard_last"]

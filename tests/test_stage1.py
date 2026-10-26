@@ -191,7 +191,7 @@ async def test_crash_inside_the_heuristics_fails_closed(monkeypatch: pytest.Monk
     """A moderation stage that cannot run must not be read as "clean"."""
 
     class Boom:
-        def analyze(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        def analyze(self, *args, **kwargs):
             raise RuntimeError("detector exploded")
 
     monkeypatch.setattr(InjectionHeuristics, "analyze", Boom.analyze)
