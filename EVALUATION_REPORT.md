@@ -1,6 +1,6 @@
 # Evaluation report
 
-Measured on the working tree at the time of writing (46 policies, 140 tests). Two corpora are scored
+Measured on the working tree at the time of writing (46 policies, 144 tests). Two corpora are scored
 with the same harness, and both numbers are reported because they mean different things.
 
 | | **tuned corpus** (225 rows) | **held-out adversarial** (33 rows) |

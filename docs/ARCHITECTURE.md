@@ -1,5 +1,9 @@
 # Architecture
 
+<p align="center">
+  <img src="assets/pipeline.svg" alt="Guardrail chain diagram: untrusted text, three stages, v1 envelope, fail-closed branch" width="100%">
+</p>
+
 One request, three stages, one envelope. The interesting parts are the boundaries: what each stage
 is allowed to decide, and what happens when it cannot decide.
 

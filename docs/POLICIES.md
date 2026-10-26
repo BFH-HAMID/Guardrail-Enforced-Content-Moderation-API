@@ -6,6 +6,8 @@ it in prod.
 
 ## Shape
 
+Illustrative skeleton of the schema — `config/policies.yaml` is the reference for what actually ships:
+
 ```yaml
 version: "1.0.0"
 # one preset per moderation mode (the file's real values)
